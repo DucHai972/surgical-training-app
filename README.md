@@ -60,7 +60,3 @@ yarn dev
 ```
 - The React application is available at `/surgical_training/`
 - API endpoints are available under `/api/method/surgical_training.api.*`
-
-## License
-
-MIT
