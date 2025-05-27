@@ -176,27 +176,6 @@ yarn dev
 - **Routes**: Frontend routes available at `/surgical_training/`
 - **API Endpoints**: Available under `/api/method/surgical_training.api.*`
 
-## Production Deployment
-
-### Using Bench
-
-```bash
-# Set production mode
-bench --site surgical-training.local set-config developer_mode 0
-
-# Setup production
-bench setup production your-username
-
-# Enable site
-bench --site surgical-training.local enable-scheduler
-
-# Start services
-sudo supervisorctl start all
-```
-
-### Using Docker (Alternative)
-
-A `Dockerfile` and `docker-compose.yml` will be added in future releases for easier deployment.
 
 ## Troubleshooting
 
@@ -236,55 +215,3 @@ rm -rf node_modules package-lock.json
 npm install
 # OR: yarn install
 ```
-
-**5. Site Access Issues**
-```bash
-# Add site to /etc/hosts (for local development)
-echo "127.0.0.1 surgical-training.local" | sudo tee -a /etc/hosts
-
-# OR use localhost
-bench --site surgical-training.local set-config host_name "http://localhost:8000"
-```
-
-### Getting Help
-
-- **Frappe Documentation**: https://frappeframework.com/docs
-- **Frappe Community**: https://discuss.erpnext.com
-- **Issues**: https://github.com/DucHai972/surgical-training-app/issues
-
-## Contributing
-
-1. Fork this repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes
-4. Commit your changes: `git commit -m 'Add amazing feature'`
-5. Push to the branch: `git push origin feature/amazing-feature`
-6. Open a Pull Request
-
-## System Requirements
-
-### Minimum Requirements
-- **RAM**: 4GB 
-- **Storage**: 10GB free space
-- **CPU**: 2 cores
-- **OS**: Ubuntu 18.04+, macOS 10.14+, or Windows 10 (via WSL2)
-
-### Recommended Requirements
-- **RAM**: 8GB+
-- **Storage**: 20GB+ free space  
-- **CPU**: 4+ cores
-- **OS**: Ubuntu 20.04+ or macOS 11+
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](license.txt) file for details.
-
-## Acknowledgments
-
-- Built on the powerful [Frappe Framework](https://frappeframework.com/)
-- Frontend powered by [React](https://reactjs.org/)
-- Video player functionality enhanced with modern web APIs
-
----
-
-**Need help?** Open an issue on [GitHub](https://github.com/DucHai972/surgical-training-app/issues) or check our documentation.
