@@ -2,22 +2,6 @@
 
 A comprehensive web application for managing clinical training sessions and doctor accounts, built with **Frappe Framework** (backend) and **React** (frontend).
 
-## Features
-
-- **User Authentication**: Doctors can register and login via Frappe's authentication system
-- **Session Management**: Admins can create training sessions with multiple videos
-- **Video Playback**: Doctors can watch videos in the browser with custom controls
-- **Commenting System**: Doctors can pause videos and leave comments at specific timestamps
-- **Role-based Access**: Different permissions for admins and physicians
-- **Modern UI**: React-based frontend with responsive design
-
-## DocTypes
-
-- **Doctor**: Extends User doctype for physician accounts
-- **Session**: Contains details about training sessions
-- **Video**: Linked to Session, stores video files and metadata
-- **VideoComment**: Links doctors to sessions with timestamped comments
-
 ## Prerequisites
 
 Before you begin, ensure you have the following installed on your system:
