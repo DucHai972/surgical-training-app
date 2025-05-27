@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "SE.#####",
+ "creation": "2023-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "session",
+  "doctor",
+  "evaluation_section",
+  "identification",
+  "situation",
+  "history",
+  "examination",
+  "assessment",
+  "recommendation",
+  "grs",
+  "comment",
+  "total_score",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "session",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Session",
+   "reqd": 1
+  },
+  {
+   "fieldname": "doctor",
+   "fieldtype": "Link",
+   "label": "Doctor",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "evaluation_section",
+   "fieldtype": "Section Break",
+   "label": "Evaluation"
+  },
+  {
+   "fieldname": "identification",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Identification",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "situation",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Identifies Main Problems",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "history",
+   "fieldtype": "Select",
+   "label": "History",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "examination",
+   "fieldtype": "Select",
+   "label": "Examination/Observations",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assessment",
+   "fieldtype": "Select",
+   "label": "Logical Assessment",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recommendation",
+   "fieldtype": "Select",
+   "label": "Clear Recommendation",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "grs",
+   "fieldtype": "Select",
+   "label": "Global Rating Scale",
+   "options": "0\n1\n2\n3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Text Editor",
+   "label": "Additional Comments"
+  },
+  {
+   "fieldname": "total_score",
+   "fieldtype": "Int",
+   "label": "Total Score",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Session Evaluation",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2023-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Surgical Training",
+ "name": "Session Evaluation",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Surgical Trainer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Surgical Trainee",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+} 

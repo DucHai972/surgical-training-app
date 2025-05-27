@@ -1,0 +1,10 @@
+.DS_Store
+*.pyc
+*.egg-info
+*.swp
+tags
+node_modules
+__pycache__
+
+surgical_training/public/frontend/
+surgical_training/www/surgical_training.html

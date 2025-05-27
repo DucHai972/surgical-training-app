@@ -1,0 +1,94 @@
+{
+    "actions": [],
+    "creation": "2024-05-12 00:05:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "doctor",
+        "session",
+        "video_title",
+        "timestamp",
+        "comment_text",
+        "created_at"
+    ],
+    "fields": [
+        {
+            "fieldname": "doctor",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Doctor",
+            "options": "Doctor",
+            "reqd": 1
+        },
+        {
+            "fieldname": "session",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Session",
+            "options": "Session",
+            "reqd": 1
+        },
+        {
+            "fieldname": "video_title",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Video Title",
+            "reqd": 1
+        },
+        {
+            "fieldname": "timestamp",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Timestamp (seconds)",
+            "precision": 2,
+            "reqd": 1
+        },
+        {
+            "fieldname": "comment_text",
+            "fieldtype": "Text Editor",
+            "label": "Comment",
+            "reqd": 1
+        },
+        {
+            "fieldname": "created_at",
+            "fieldtype": "Datetime",
+            "label": "Created At",
+            "read_only": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2024-05-12 00:05:00.000000",
+    "module": "Surgical Training",
+    "name": "Video Comment",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "delete": 0,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Physician",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+} 
