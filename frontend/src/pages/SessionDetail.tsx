@@ -5,7 +5,8 @@ import ReactPlayer from 'react-player';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { ArrowLeft, Play, Pause, MessageSquare, Clock, User, Video, ClipboardCheck, Maximize2, Grid, Columns, Download } from 'lucide-react';
+import VideoList from '../components/VideoList';
+import { ArrowLeft, Play, Pause, MessageSquare, Clock, User, Video, ClipboardCheck, Maximize2, Grid, Columns, Download, Send, Eye, Calendar, Users } from 'lucide-react';
 
 interface Video {
   title: string;
@@ -313,21 +314,48 @@ const SessionDetail = () => {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'active':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'completed':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
   if (isValidating && !sessionData) {
     return (
-      <div className="flex justify-center items-center h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600"></div>
+      <div className="flex justify-center items-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+        <div className="relative">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-200"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 border-t-transparent absolute top-0 left-0"></div>
+        </div>
       </div>
     );
   }
 
   if (!sessionData || !currentVideo) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
-        <p className="text-xl mb-4 text-gray-700 dark:text-gray-300">Session not found or no videos available.</p>
-        <Button asChild className="bg-indigo-600 hover:bg-indigo-700">
-          <Link to="/dashboard">Back to Dashboard</Link>
-        </Button>
+      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+        <div className="text-center">
+          <div className="h-24 w-24 rounded-full bg-gradient-to-br from-red-100 to-red-200 dark:from-red-900/30 dark:to-red-800/30 flex items-center justify-center mb-6">
+            <Video size={40} className="text-red-600 dark:text-red-400" />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Session Not Found</h3>
+          <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-md">
+            The requested session could not be found or no videos are available for viewing.
+          </p>
+          <Button asChild className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-3 rounded-xl">
+            <Link to="/dashboard" className="flex items-center gap-2">
+              <ArrowLeft size={16} />
+              Back to Dashboard
+            </Link>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -343,8 +371,8 @@ const SessionDetail = () => {
     const videoComments = getVideoComments(video.title);
     
     return (
-      <Card className={`bg-white dark:bg-gray-800 border-0 shadow-lg overflow-hidden mb-6 ${isFullWidth ? 'w-full' : ''}`}>
-        <div className="relative aspect-video bg-black">
+      <Card className={`group bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden mb-6 ${isFullWidth ? 'w-full' : ''}`}>
+        <div className="relative aspect-video bg-gradient-to-br from-gray-900 to-black rounded-t-lg overflow-hidden">
           <ReactPlayer
             ref={(player) => {
               if (player) {
@@ -371,108 +399,130 @@ const SessionDetail = () => {
             }}
             className="absolute top-0 left-0"
           />
+          <div className="absolute top-4 right-4">
+            <span className="bg-black/50 backdrop-blur-sm text-white px-3 py-1 rounded-full text-sm font-medium">
+              <Eye size={14} className="inline mr-1" />
+              Live
+            </span>
+          </div>
         </div>
 
-        <CardHeader>
-          <CardTitle className="text-xl text-gray-900 dark:text-white flex items-center gap-2">
-            <Video size={18} />
-            {video.title}
-          </CardTitle>
+        <CardHeader className="pb-4">
+          <div className="flex items-start justify-between">
+            <CardTitle className="text-xl text-gray-900 dark:text-white flex items-center gap-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-300">
+              <Video size={18} className="text-indigo-500" />
+              {video.title}
+            </CardTitle>
+          </div>
           {video.description && (
-            <CardDescription className="text-gray-700 dark:text-gray-300">
+            <CardDescription className="text-gray-700 dark:text-gray-300 leading-relaxed">
               {video.description}
             </CardDescription>
           )}
         </CardHeader>
 
-        <CardContent>
-          <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/30 px-4 py-2 rounded-lg mb-4">
-            <div className="flex items-center gap-2">
+        <CardContent className="space-y-6">
+          {/* Video Controls */}
+          <div className="flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 px-4 py-3 rounded-xl border border-indigo-100 dark:border-indigo-800">
+            <div className="flex items-center gap-3">
               <Clock size={16} className="text-indigo-500" />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Current Time: {formatTime(videoState.currentTime)}
+                Current Time: <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{formatTime(videoState.currentTime)}</span>
               </span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => handlePlayPause(video.title, !videoState.isPlaying)}
-              className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
+              className="group bg-white/50 dark:bg-gray-800/50 hover:bg-white dark:hover:bg-gray-700 border border-indigo-200 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-all duration-300 transform hover:scale-105"
             >
               {videoState.isPlaying ? (
-                <><Pause size={16} className="mr-1" /> Pause</>
+                <><Pause size={16} className="mr-2 group-hover:scale-110 transition-transform duration-300" /> Pause</>
               ) : (
-                <><Play size={16} className="mr-1" /> Play</>
+                <><Play size={16} className="mr-2 group-hover:scale-110 transition-transform duration-300" /> Play</>
               )}
             </Button>
           </div>
           
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-            <MessageSquare size={16} className="text-indigo-500" />
-            Add Comment
-          </h3>
+          {/* Comment Section */}
           <div className="space-y-4">
-            <textarea
-              rows={3}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-3 py-2 text-gray-900 dark:text-gray-100"
-              placeholder="Add a comment at this timestamp..."
-              value={videoState.newComment}
-              onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              disabled={isAddingComment}
-            />
-            <div className="flex justify-end">
-              <Button
-                onClick={() => handleAddComment(video.title)}
-                disabled={isAddingComment || !videoState.newComment.trim()}
-                className="bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2"
-              >
-                <MessageSquare size={16} />
-                {isAddingComment ? 'Adding...' : 'Add Comment'}
-              </Button>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <MessageSquare size={18} className="text-indigo-500" />
+              Add Comment
+            </h3>
+            
+            <div className="space-y-4">
+              <textarea
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 px-4 py-3 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 transition-all duration-300"
+                placeholder="Share your thoughts about this moment in the video..."
+                value={videoState.newComment}
+                onChange={(e) => handleCommentChange(video.title, e.target.value)}
+                disabled={isAddingComment}
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => handleAddComment(video.title)}
+                  disabled={isAddingComment || !videoState.newComment.trim()}
+                  className="group bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-2 rounded-xl"
+                >
+                  <Send size={16} className="mr-2 group-hover:translate-x-1 transition-transform duration-300" />
+                  {isAddingComment ? 'Adding...' : 'Add Comment'}
+                </Button>
+              </div>
             </div>
           </div>
           
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-              <MessageSquare size={16} className="text-indigo-500" />
-              Comments ({videoComments.length})
+          {/* Comments Display */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <MessageSquare size={18} className="text-indigo-500" />
+              Comments 
+              <span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-full text-sm font-medium">
+                {videoComments.length}
+              </span>
             </h3>
             
             {videoComments.length === 0 ? (
-              <div className="text-center py-8 bg-gray-50 dark:bg-gray-700/20 rounded-lg">
-                <MessageSquare size={36} className="mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                <p className="text-gray-500 dark:text-gray-400">No comments yet for this video.</p>
+              <div className="text-center py-12 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-700">
+                <MessageSquare size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Comments Yet</h4>
+                <p className="text-gray-500 dark:text-gray-400">Be the first to share your thoughts on this video.</p>
               </div>
             ) : (
-              <div className="space-y-4 max-h-[300px] overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg">
-                {videoComments.map((comment) => (
-                  <div key={comment.name} className="p-4 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                    <div className="flex items-start gap-3">
-                      <div className="h-8 w-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
-                        <User size={14} className="text-indigo-600 dark:text-indigo-400" />
+              <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/50 dark:bg-gray-800/30 p-4">
+                {videoComments.map((comment, index) => (
+                  <div 
+                    key={comment.name} 
+                    className="group p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 hover:shadow-md transition-all duration-300 transform hover:-translate-y-1"
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+                        <User size={16} className="text-white" />
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-medium text-gray-900 dark:text-white">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="font-semibold text-gray-900 dark:text-white">
                               {comment.doctor_name || comment.doctor}
                             </span>
                             <button
                               onClick={() => seekToTime(video.title, comment.timestamp)}
-                              className="text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded flex items-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
+                              className="group/btn bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 hover:from-indigo-600 hover:to-purple-600 transition-all duration-300 transform hover:scale-105 shadow-md hover:shadow-lg"
                             >
-                              <Clock size={12} />
+                              <Clock size={12} className="group-hover/btn:scale-110 transition-transform duration-300" />
                               {formatTime(comment.timestamp)}
                             </button>
                           </div>
                           {comment.created_at && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full">
                               {formatDate(comment.created_at)}
                             </span>
                           )}
                         </div>
                         <div
-                          className="text-sm text-gray-700 dark:text-gray-300 text-left whitespace-pre-wrap break-words"
+                          className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap break-words"
                           dangerouslySetInnerHTML={{ __html: comment.comment_text }}
                         />
                       </div>
@@ -488,81 +538,125 @@ const SessionDetail = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {/* Add session title and back button */}
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{sessionData?.session.title}</h1>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Viewing session details and videos</p>
-          </div>
-          
-          <div className="flex space-x-4">
-            <Button 
-              onClick={handleExportEvaluations}
-              disabled={isExporting}
-              variant="outline" 
-              className="bg-blue-600 hover:bg-blue-700 border-none text-white"
-            >
-              <Download size={16} className="mr-2" />
-              {isExporting ? 'Exporting...' : 'Export JSON'}
-            </Button>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        {/* Enhanced Header Section */}
+        <div className="mb-8">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg">
+                  <Video size={24} className="text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {sessionData?.session.title}
+                  </h1>
+                  <div className="flex items-center gap-4 mt-2">
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                      <Calendar size={14} />
+                      <span className="text-sm">
+                        {new Date(sessionData?.session.session_date || '').toLocaleDateString()}
+                      </span>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(sessionData?.session.status || '')}`}>
+                      {sessionData?.session.status || 'Active'}
+                    </span>
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                      <Users size={14} />
+                      <span className="text-sm">{sessionData?.videos.length || 0} videos</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed max-w-2xl">
+                {sessionData?.session.description || 'Viewing session details and training videos with interactive features.'}
+              </p>
+            </div>
             
-            <Button 
-              asChild 
-              variant="default" 
-              className="bg-emerald-600 hover:bg-emerald-700 border-none text-white"
-            >
-              <Link to={`/evaluate/${sessionName}`} className="flex items-center gap-2">
-                <ClipboardCheck size={16} />
-                Evaluate Session
-              </Link>
-            </Button>
-            
-            <Button 
-              asChild 
-              variant="outline" 
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950/50"
-            >
-              <Link to="/dashboard" className="flex items-center gap-2">
-                <ArrowLeft size={16} />
-                Back to Dashboard
-              </Link>
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button 
+                onClick={handleExportEvaluations}
+                disabled={isExporting}
+                variant="outline" 
+                className="group bg-blue-500/10 hover:bg-blue-500 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-400 hover:text-white transition-all duration-300 transform hover:scale-105 shadow-md hover:shadow-lg"
+              >
+                <Download size={16} className="mr-2 group-hover:scale-110 transition-transform duration-300" />
+                {isExporting ? 'Exporting...' : 'Export JSON'}
+              </Button>
+              
+              <Button 
+                asChild 
+                className="group bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              >
+                <Link to={`/evaluate/${sessionName}`} className="flex items-center gap-2">
+                  <ClipboardCheck size={16} className="group-hover:scale-110 transition-transform duration-300" />
+                  Evaluate Session
+                </Link>
+              </Button>
+              
+              <Button 
+                asChild 
+                variant="outline" 
+                className="group border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-300 transform hover:scale-105 shadow-md hover:shadow-lg"
+              >
+                <Link to="/dashboard" className="flex items-center gap-2">
+                  <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform duration-300" />
+                  Back to Dashboard
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
         
-        {/* View mode toggles */}
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white">Video Viewer</h2>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant={layout === 'single' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => changeLayout('single')}
-              className={`flex items-center gap-1 ${layout === 'single' ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'text-gray-600 dark:text-gray-300'}`}
-            >
-              <Maximize2 size={14} />
-              <span className="text-xs md:text-sm">Single Video</span>
-            </Button>
-            <Button
-              variant={layout === 'side-by-side' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => changeLayout('side-by-side')}
-              className={`flex items-center gap-1 ${layout === 'side-by-side' ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'text-gray-600 dark:text-gray-300'}`}
-            >
-              <Columns size={14} />
-              <span className="text-xs md:text-sm">Side by Side</span>
-            </Button>
-            <Button
-              variant={layout === 'grid' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => changeLayout('grid')}
-              className={`flex items-center gap-1 ${layout === 'grid' ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'text-gray-600 dark:text-gray-300'}`}
-            >
-              <Grid size={14} />
-              <span className="text-xs md:text-sm">Grid View</span>
-            </Button>
+        {/* Enhanced View Mode Toggles */}
+        <div className="mb-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Eye size={20} className="text-indigo-500" />
+              Video Viewer
+            </h2>
+            <div className="flex items-center gap-2 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm p-1 rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg">
+              <Button
+                variant={layout === 'single' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => changeLayout('single')}
+                className={`group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg ${
+                  layout === 'single' 
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md' 
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Maximize2 size={14} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs md:text-sm font-medium">Single</span>
+              </Button>
+              <Button
+                variant={layout === 'side-by-side' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => changeLayout('side-by-side')}
+                className={`group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg ${
+                  layout === 'side-by-side' 
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md' 
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Columns size={14} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs md:text-sm font-medium">Side by Side</span>
+              </Button>
+              <Button
+                variant={layout === 'grid' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => changeLayout('grid')}
+                className={`group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg ${
+                  layout === 'grid' 
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md' 
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Grid size={14} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs md:text-sm font-medium">Grid</span>
+              </Button>
+            </div>
           </div>
         </div>
         
@@ -574,43 +668,22 @@ const SessionDetail = () => {
               {renderVideoPlayer(currentVideo, true)}
             </div>
             
-            {/* Sidebar - Video List */}
-            <div className="mt-8 lg:mt-0 space-y-6">
-              <Card className="bg-white dark:bg-gray-800 border-0 shadow-md">
-                <CardHeader className="bg-gray-50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700">
-                  <CardTitle className="text-lg text-gray-900 dark:text-white flex items-center gap-2">
-                    <Video size={16} />
-                    Available Videos
-                  </CardTitle>
-                </CardHeader>
-                <div className="max-h-[300px] overflow-y-auto">
-                  {sessionData.videos.map((video) => (
-                    <div
-                      key={video.title}
-                      onClick={() => handleVideoChange(video)}
-                      className={`px-4 py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 ${
-                        currentVideo.title === video.title ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
-                      }`}
-                    >
-                      <h4 className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                        <Video size={14} className={currentVideo.title === video.title ? 'text-indigo-500' : 'text-gray-400'} />
-                        {video.title}
-                      </h4>
-                      {video.description && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">{video.description}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Card>
+            {/* Enhanced Sidebar - Video List */}
+            <div className="mt-8 lg:mt-0">
+              <VideoList
+                videos={sessionData.videos}
+                currentVideo={currentVideo}
+                onVideoChange={handleVideoChange}
+                getVideoComments={getVideoComments}
+              />
             </div>
           </div>
         )}
         
         {layout === 'side-by-side' && sessionData.videos.length >= 2 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {sessionData.videos.slice(0, 2).map(video => (
-              <div key={video.title}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {sessionData.videos.slice(0, 2).map((video, index) => (
+              <div key={video.title} style={{ animationDelay: `${index * 200}ms` }} className="animate-fade-in-up">
                 {renderVideoPlayer(video)}
               </div>
             ))}
@@ -618,9 +691,9 @@ const SessionDetail = () => {
         )}
         
         {layout === 'grid' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sessionData.videos.map(video => (
-              <div key={video.title}>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {sessionData.videos.map((video, index) => (
+              <div key={video.title} style={{ animationDelay: `${index * 100}ms` }} className="animate-fade-in-up">
                 {renderVideoPlayer(video)}
               </div>
             ))}

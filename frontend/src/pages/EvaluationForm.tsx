@@ -4,7 +4,6 @@ import toast from 'react-hot-toast';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { ArrowLeft } from 'lucide-react';
-import Navbar from '../components/Navbar';
 
 interface EvaluationFormData {
   session: string;
@@ -100,7 +99,7 @@ const EvaluationForm = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <Navbar currentPage="evaluation" />
+      {/* <Navbar currentPage="evaluation" /> */}
 
       <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {/* Header section */}

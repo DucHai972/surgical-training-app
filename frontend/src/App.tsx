@@ -10,7 +10,6 @@ import Dashboard from './pages/Dashboard';
 import SessionDetail from './pages/SessionDetail';
 import EvaluationForm from './pages/EvaluationForm';
 import AuthRoute from './components/AuthRoute';
-import StatisticsPage from './pages/StatisticsPage';
 
 function App() {
 	const getToken = () => localStorage.getItem('token') || '';
@@ -57,11 +56,6 @@ function App() {
 					<Route path="/evaluate/:sessionName" element={
 						<AuthRoute>
 							<EvaluationForm />
-						</AuthRoute>
-					} />
-					<Route path="/statistics" element={
-						<AuthRoute>
-							<StatisticsPage />
 						</AuthRoute>
 					} />
 					<Route path="/" element={<Navigate to="/dashboard" replace />} />
