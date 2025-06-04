@@ -2,8 +2,6 @@ import frappe
 from frappe import _
 import json
 
-__all__ = ['get_evaluation_statistics', 'add_evaluation', 'get_session_evaluations']
-
 @frappe.whitelist()
 def add_evaluation(**kwargs):
     try:
@@ -143,109 +141,6 @@ def get_session_evaluations(session_name):
         
     except Exception as e:
         frappe.log_error(title="Error in get_session_evaluations", message=str(e))
-        return {
-            "message": "Error",
-            "error": str(e)
-        }
-
-@frappe.whitelist(allow_guest=False)
-def get_evaluation_statistics():
-    """Return statistics for all session evaluations"""
-    try:
-        frappe.logger().debug("Starting get_evaluation_statistics")
-        
-        # Check if user is authenticated
-        if frappe.session.user == "Guest":
-            frappe.logger().warning("Guest user attempted to access statistics")
-            frappe.throw("Authentication required", frappe.AuthenticationError)
-        
-        # Fields to analyze
-        score_fields = [
-            "identification", "situation", "history", "examination", 
-            "assessment", "recommendation", "grs"
-        ]
-        
-        # Get all evaluations
-        try:
-            evaluations = frappe.get_all(
-                "Session Evaluation",
-                fields=["session"] + score_fields,
-                ignore_permissions=True  # Allow access to all evaluations
-            )
-            frappe.logger().debug(f"Found {len(evaluations)} evaluations")
-        except Exception as e:
-            frappe.logger().error(f"Error fetching evaluations: {str(e)}")
-            frappe.logger().error(frappe.get_traceback())
-            return {
-                "message": "Error",
-                "error": f"Failed to fetch evaluations: {str(e)}"
-            }
-
-        if not evaluations:
-            return {
-                "message": "Success",
-                "data": {
-                    "total": 0,
-                    "sessions": {},
-                    "averages": {},
-                    "counts": {},
-                    "score_distributions": {}
-                }
-            }
-
-        # Aggregate by session
-        session_stats = {}
-        field_totals = {field: 0 for field in score_fields}
-        field_counts = {field: 0 for field in score_fields}
-        score_distributions = {field: {str(i): 0 for i in range(4)} for field in score_fields}
-
-        for eval in evaluations:
-            session = eval["session"]
-            if session not in session_stats:
-                session_stats[session] = {"count": 0, **{field: 0 for field in score_fields}}
-            session_stats[session]["count"] += 1
-            
-            for field in score_fields:
-                value = eval.get(field)
-                if value is not None:
-                    try:
-                        value_int = int(value)
-                        session_stats[session][field] += value_int
-                        field_totals[field] += value_int
-                        field_counts[field] += 1
-                        score_distributions[field][str(value_int)] += 1
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(f"Invalid value for {field} in session {session}: {value}")
-
-        # Calculate averages
-        field_averages = {
-            field: (field_totals[field] / field_counts[field]) if field_counts[field] else 0 
-            for field in score_fields
-        }
-
-        result = {
-            "message": "Success",
-            "data": {
-                "total": len(evaluations),
-                "sessions": session_stats,
-                "averages": field_averages,
-                "counts": field_counts,
-                "score_distributions": score_distributions
-            }
-        }
-        
-        frappe.logger().debug("Successfully generated statistics")
-        return result
-
-    except frappe.AuthenticationError as e:
-        frappe.logger().error(f"Authentication error in get_evaluation_statistics: {str(e)}")
-        return {
-            "message": "Error",
-            "error": "Authentication required"
-        }
-    except Exception as e:
-        frappe.logger().error(f"Error in get_evaluation_statistics: {str(e)}")
-        frappe.logger().error(frappe.get_traceback())
         return {
             "message": "Error",
             "error": str(e)

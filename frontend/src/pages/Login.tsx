@@ -75,7 +75,7 @@ const Login = () => {
                 className="h-20 w-auto drop-shadow-md" 
               />
             </div>
-            <CardTitle className="text-2xl font-bold text-center">Surgical Training Platform</CardTitle>
+            <CardTitle className="text-2xl font-bold text-center">Learning Analytics Platform for Simulation-Based Training</CardTitle>
             <CardDescription className="text-center">Enter your credentials to access your account</CardDescription>
           </CardHeader>
           <CardContent>
@@ -133,7 +133,7 @@ const Login = () => {
           </CardContent>
           <CardFooter className="flex justify-center border-t pt-6">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              © {new Date().getFullYear()} Surgical Training Platform. All rights reserved.
+              © {new Date().getFullYear()} Learning Analytics Platform for Simulation-Based Training. All rights reserved.
             </p>
           </CardFooter>
         </Card>
