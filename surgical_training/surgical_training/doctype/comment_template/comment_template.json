@@ -1,0 +1,75 @@
+{
+    "actions": [],
+    "creation": "2024-12-19 00:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "title",
+        "content",
+        "emoji",
+        "color"
+    ],
+    "fields": [
+        {
+            "fieldname": "title",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Title",
+            "reqd": 1
+        },
+        {
+            "fieldname": "content",
+            "fieldtype": "Text Editor",
+            "label": "Template Content",
+            "reqd": 1
+        },
+        {
+            "fieldname": "emoji",
+            "fieldtype": "Data",
+            "label": "Emoji",
+            "default": "💬"
+        },
+        {
+            "fieldname": "color",
+            "fieldtype": "Select",
+            "label": "Color",
+            "options": "blue\ngreen\nyellow\nred\npurple\nindigo\npink\ngray",
+            "default": "blue"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2024-12-19 00:00:00.000000",
+    "module": "Surgical Training",
+    "name": "Comment Template",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Physician",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+} 
