@@ -21,7 +21,9 @@ const Login = () => {
   useEffect(() => {
     if (currentUser) {
       console.log('User authenticated, redirecting to dashboard');
-      navigate('/dashboard', { replace: true });
+      // Use the correct route for development environment
+      const dashboardPath = import.meta.env.DEV ? '/dashboard' : '/dashboard';
+      navigate(dashboardPath, { replace: true });
     }
   }, [currentUser, navigate]);
 
@@ -40,7 +42,11 @@ const Login = () => {
       
       // Force redirect with a small delay to ensure state update is processed
       setTimeout(() => {
-        window.location.href = '/surgical_training/dashboard';
+        // Use the correct URL for development environment
+        const dashboardUrl = import.meta.env.DEV 
+          ? window.location.origin + '/assets/surgical_training/frontend/dashboard'
+          : window.location.origin + '/surgical_training/dashboard';
+        window.location.href = dashboardUrl;
       }, 500);
     } catch (error) {
       console.error('Login error:', error);
@@ -66,7 +72,7 @@ const Login = () => {
       
       {/* Content */}
       <div className="relative z-10 w-full max-w-md px-4 py-10">
-        <Card className="w-full border-0 shadow-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur">
+        <Card className="w-full border-0 shadow-2xl bg-white/95 backdrop-blur">
           <CardHeader className="space-y-1">
             <div className="flex justify-center mb-4">
               <img 
@@ -81,7 +87,7 @@ const Login = () => {
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="username" className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                <label htmlFor="username" className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <User size={16} className="text-indigo-500" />
                   Username
                 </label>
@@ -91,13 +97,13 @@ const Login = () => {
                   type="text"
                   placeholder="Enter your username"
                   required
-                  className="border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                  className="border-gray-300 bg-white"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                <label htmlFor="password" className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Lock size={16} className="text-indigo-500" />
                   Password
                 </label>
@@ -107,7 +113,7 @@ const Login = () => {
                   type="password"
                   placeholder="Enter your password"
                   required
-                  className="border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                  className="border-gray-300 bg-white"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -132,7 +138,7 @@ const Login = () => {
             </form>
           </CardContent>
           <CardFooter className="flex justify-center border-t pt-6">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-500">
               © {new Date().getFullYear()} Learning Analytics Platform for Simulation-Based Training. All rights reserved.
             </p>
           </CardFooter>

@@ -10,28 +10,23 @@ import Dashboard from './pages/Dashboard';
 import SessionDetail from './pages/SessionDetail';
 import EvaluationForm from './pages/EvaluationForm';
 import AuthRoute from './components/AuthRoute';
+import Guide from './pages/Guide';
+import Analytics from './pages/Analytics';
 
 function App() {
 	const getToken = () => localStorage.getItem('token') || '';
 	
-	// Effect to set light theme
+	// Simple effect to ensure light theme
 	useEffect(() => {
-		// Force light theme by removing 'dark' class
+		// Remove dark class if present
 		document.documentElement.classList.remove('dark');
-		
-		// Apply light background color directly to body and html
-		document.body.style.backgroundColor = '#f9fafb'; // Light gray (bg-gray-50)
-		document.documentElement.style.backgroundColor = '#f9fafb';
-		
-		// Force light theme variables
-		document.documentElement.style.setProperty('--background', 'oklch(1 0 0)');
-		document.documentElement.style.setProperty('--foreground', 'oklch(0.145 0 0)');
-		document.documentElement.style.setProperty('--card', 'oklch(1 0 0)');
-		document.documentElement.style.setProperty('--card-foreground', 'oklch(0.145 0 0)');
+		document.body.classList.remove('dark');
 	}, []);
 	
 	return (
+		<div className="light-theme-wrapper" style={{backgroundColor: '#f9fafb', minHeight: '100vh', fontFamily: 'system-ui, sans-serif'}}>
 		<FrappeProvider 
+				enableSocket={!import.meta.env.DEV}
 			socketPort="9004"
 			tokenParams={{
 				useToken: true,
@@ -40,7 +35,7 @@ function App() {
 			}}
 		>
 			<Toaster position="top-right" />
-			<Router basename="/surgical_training">
+				<Router basename={import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/surgical_training"}>
 				<Routes>
 					<Route path="/login" element={<Login />} />
 					<Route path="/dashboard" element={
@@ -58,10 +53,13 @@ function App() {
 							<EvaluationForm />
 						</AuthRoute>
 					} />
+					<Route path="/guide" element={<Guide />} />
+					<Route path="/analytics" element={<Analytics />} />
 					<Route path="/" element={<Navigate to="/dashboard" replace />} />
 				</Routes>
 			</Router>
 		</FrappeProvider>
+		</div>
 	);
 }
 
