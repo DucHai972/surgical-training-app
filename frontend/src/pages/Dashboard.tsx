@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useFrappeGetCall } from 'frappe-react-sdk';
+import { useFrappeGetCall, useFrappeAuth } from 'frappe-react-sdk';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/button';
@@ -17,8 +17,15 @@ interface Session {
 
 const Dashboard = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const { currentUser: authUser } = useFrappeAuth();
+  const isAdmin = authUser === 'administrator@gmail.com';
 
-  const { data, error, isValidating } = useFrappeGetCall('surgical_training.api.session.get_sessions');
+  // Use different API based on user role
+  const { data, error, isValidating } = useFrappeGetCall(
+    isAdmin 
+      ? 'surgical_training.api.session.get_sessions'
+      : 'surgical_training.api.session_assignment.get_user_assigned_sessions'
+  );
 
   useEffect(() => {
     // Check if data exists and has the expected format

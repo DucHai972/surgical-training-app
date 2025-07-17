@@ -44,72 +44,72 @@ const VideoList = ({ videos, currentVideo, onVideoChange, getVideoComments }: Vi
       {/* Toggle Button - Fixed position */}
       <Button
         onClick={toggleSidebar}
-        className={`fixed top-4 right-4 z-50 h-12 w-12 rounded-full shadow-lg transition-all duration-300 ${
+        className={`fixed top-6 right-6 z-[9999] h-16 w-16 rounded-full shadow-lg transition-all duration-300 ${
           isOpen 
             ? 'bg-red-600 hover:bg-red-700 text-white' 
             : 'bg-blue-600 hover:bg-blue-700 text-white'
         }`}
         title={isOpen ? 'Close video list' : 'Open video list'}
       >
-        {isOpen ? <X size={20} /> : <Menu size={20} />}
+        {isOpen ? <X size={24} /> : <Menu size={24} />}
       </Button>
 
       {/* Backdrop Overlay */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998] lg:hidden"
           onClick={toggleSidebar}
         />
       )}
 
       {/* Sidebar Container */}
       <div 
-        className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-40 transition-transform duration-300 ease-in-out border-l border-gray-200 ${
+        className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-[9997] transition-transform duration-300 ease-in-out border-l border-gray-200 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{ width: '400px', maxWidth: '90vw' }}
+        style={{ width: '480px', maxWidth: '90vw' }}
       >
         {/* Sidebar Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 border-b border-blue-500">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg border border-white/30">
-            <Video size={20} className="text-white" />
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-8 border-b border-blue-500">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg border border-white/30">
+                <Video size={24} className="text-white" />
           </div>
               <div>
-                <h2 className="text-xl font-bold text-white">Training Videos</h2>
-                <p className="text-sm text-white/90">
+                <h2 className="text-2xl font-bold text-white">Training Videos</h2>
+                <p className="text-base text-white/90">
               {videos.length} video{videos.length !== 1 ? 's' : ''} available
                 </p>
               </div>
             </div>
-            <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
+            <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-white px-4 py-2 rounded-full text-lg font-semibold shadow-lg">
               {videos.length}
             </div>
           </div>
 
           {/* View Mode Toggle */}
-          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-lg p-1">
+          <div className="flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl p-2">
             <Button
               onClick={() => setViewMode('list')}
               variant="ghost"
-              size="sm"
-              className={`flex-1 text-white hover:bg-white/20 transition-all duration-200 ${
+              size="lg"
+              className={`flex-1 text-white hover:bg-white/20 transition-all duration-200 rounded-xl px-6 py-4 min-h-[56px] ${
                 viewMode === 'list' ? 'bg-white/20 shadow-sm' : ''
               }`}
             >
-              <List size={16} className="mr-2" />
+              <List size={18} className="mr-3" />
               List
             </Button>
             <Button
               onClick={() => setViewMode('grid')}
               variant="ghost"
-              size="sm"
-              className={`flex-1 text-white hover:bg-white/20 transition-all duration-200 ${
+              size="lg"
+              className={`flex-1 text-white hover:bg-white/20 transition-all duration-200 rounded-xl px-6 py-4 min-h-[56px] ${
                 viewMode === 'grid' ? 'bg-white/20 shadow-sm' : ''
               }`}
             >
-              <Grid size={16} className="mr-2" />
+              <Grid size={18} className="mr-3" />
               Grid
             </Button>
           </div>

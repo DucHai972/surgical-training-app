@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2, MessageSquare, Clock, User, AlertTriangle, CheckCircle, LayoutGrid, Minus } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2, MessageSquare, Clock, User, AlertTriangle, CheckCircle, Minus, BarChart, ZoomIn, ZoomOut, RotateCcw, Scissors, Plus, Edit, Trash2, Save, X } from 'lucide-react';
 
 interface Comment {
   name: string;
@@ -9,6 +9,16 @@ interface Comment {
   timestamp: number;
   comment_text: string;
   created_at: string;
+  duration?: number; // Individual duration for each comment (in seconds)
+}
+
+interface TimelineSegment {
+  id: string;
+  name: string;
+  startTime: number;
+  endTime: number;
+  color: string;
+  description?: string;
 }
 
 interface CustomVideoPlayerProps {
@@ -34,18 +44,431 @@ const CustomVideoPlayer = ({
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const [duration, setDuration] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [volume, setVolume] = useState(1);
+  const [duration, setDuration] = useState<number>(0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [volume, setVolume] = useState<number>(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-
-  const [activeComment, setActiveComment] = useState<Comment | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [isTimelineHovered, setIsTimelineHovered] = useState(false);
+
+  // Zoom functionality state
+  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = no zoom, 2 = 2x zoom, etc.
+  const [viewportStart, setViewportStart] = useState<number>(0); // Start time of visible range
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStartX, setPanStartX] = useState<number>(0);
+  const [panStartViewport, setPanStartViewport] = useState<number>(0);
+
+  // Calculate the duration of the visible viewport based on zoom
+  const getViewportDuration = () => {
+    return duration / zoomLevel;
+  };
+
+  // Calculate the end time of the visible viewport
+  const getViewportEnd = () => {
+    return Math.min(viewportStart + getViewportDuration(), duration);
+  };
+
+  // Ensure viewport stays within bounds
+  const clampViewport = (newStart: number) => {
+    const viewportDuration = getViewportDuration();
+    const maxStart = Math.max(0, duration - viewportDuration);
+    return Math.max(0, Math.min(newStart, maxStart));
+  };
+
+  // Auto-center viewport on current time when zooming
+  useEffect(() => {
+    if (zoomLevel > 1) {
+      const viewportDuration = getViewportDuration();
+      const newStart = Math.max(0, currentTime - viewportDuration / 2);
+      setViewportStart(clampViewport(newStart));
+    }
+  }, [zoomLevel, duration]);
+
+  // Auto-pan to keep current time visible
+  useEffect(() => {
+    if (zoomLevel > 1) {
+      const viewportEnd = getViewportEnd();
+      if (currentTime < viewportStart || currentTime > viewportEnd) {
+        const viewportDuration = getViewportDuration();
+        const newStart = Math.max(0, currentTime - viewportDuration / 2);
+        setViewportStart(clampViewport(newStart));
+      }
+    }
+  }, [currentTime, zoomLevel]);
+
+  // Convert timeline position to time (accounting for zoom)
+  const timelinePositionToTime = (position: number, rect: DOMRect) => {
+    const clickX = position - rect.left;
+    const percentage = clickX / rect.width;
+    const viewportDuration = getViewportDuration();
+    return viewportStart + (percentage * viewportDuration);
+  };
+
+  // Convert time to timeline position (accounting for zoom)
+  const timeToTimelinePosition = (time: number) => {
+    if (zoomLevel === 1) {
+      return (time / duration) * 100;
+    }
+    const viewportDuration = getViewportDuration();
+    return ((time - viewportStart) / viewportDuration) * 100;
+  };
+
+  // Zoom controls
+  const handleZoomIn = () => {
+    if (zoomLevel < 20) { // Max 20x zoom
+      setZoomLevel(prev => Math.min(20, prev * 1.5));
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (zoomLevel > 1) {
+      setZoomLevel(prev => Math.max(1, prev / 1.5));
+      if (zoomLevel <= 1.5) {
+        setZoomLevel(1);
+        setViewportStart(0);
+      }
+    }
+  };
+
+  const handleZoomReset = () => {
+    setZoomLevel(1);
+    setViewportStart(0);
+  };
+
+  // Handle pan start
+  const handlePanStart = (e: React.MouseEvent) => {
+    if (zoomLevel > 1) {
+      setIsPanning(true);
+      setPanStartX(e.clientX);
+      setPanStartViewport(viewportStart);
+    }
+  };
+
+  // Handle pan move
+  const handlePanMove = (e: React.MouseEvent) => {
+    if (isPanning && zoomLevel > 1 && timelineRef.current) {
+      const deltaX = e.clientX - panStartX;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const deltaTime = -(deltaX / rect.width) * getViewportDuration();
+      const newStart = panStartViewport + deltaTime;
+      setViewportStart(clampViewport(newStart));
+    }
+  };
+
+  // Handle pan end
+  const handlePanEnd = () => {
+    setIsPanning(false);
+  };
+
+  // Handle scroll wheel zoom
+  const handleTimelineWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const rect = timelineRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      // Get mouse position on timeline for zoom focus
+      const mouseTime = timelinePositionToTime(e.clientX, rect);
+      
+      if (e.deltaY < 0) {
+        // Zoom in
+        if (zoomLevel < 20) {
+          const newZoomLevel = Math.min(20, zoomLevel * 1.2);
+          setZoomLevel(newZoomLevel);
+          
+          // Center viewport on mouse position
+          const newViewportDuration = duration / newZoomLevel;
+          const newStart = Math.max(0, mouseTime - newViewportDuration / 2);
+          setViewportStart(clampViewport(newStart));
+        }
+      } else {
+        // Zoom out
+        if (zoomLevel > 1) {
+          const newZoomLevel = Math.max(1, zoomLevel / 1.2);
+          setZoomLevel(newZoomLevel);
+          
+          if (newZoomLevel <= 1) {
+            setViewportStart(0);
+          } else {
+            // Center viewport on mouse position
+            const newViewportDuration = duration / newZoomLevel;
+            const newStart = Math.max(0, mouseTime - newViewportDuration / 2);
+            setViewportStart(clampViewport(newStart));
+          }
+        }
+      }
+    }
+  };
+
+  // Calculate the currently active comment based on duration spans
+  const getCurrentActiveComment = () => {
+    const commentDurations = getCommentDurations();
+    return commentDurations.find(
+      comment => currentTime >= comment.startTime && currentTime <= comment.endTime
+    ) || null;
+  };
   const [timelineMode, setTimelineMode] = useState<'single' | 'multi'>('single');
 
+  // Timeline Segmentation state
+  const [timelineSegments, setTimelineSegments] = useState<TimelineSegment[]>([]);
+  const [showSegmentManager, setShowSegmentManager] = useState(false);
+  const [editingSegment, setEditingSegment] = useState<TimelineSegment | null>(null);
+  const [newSegment, setNewSegment] = useState({
+    name: '',
+    startTime: 0,
+    endTime: 300, // Default 5 minutes
+    color: 'blue',
+    description: ''
+  });
 
+  // Predefined segment templates
+  const segmentTemplates = [
+    { name: 'Pre-Session', color: 'gray', description: 'Preparation and setup' },
+    { name: 'Main Session', color: 'blue', description: 'Primary surgical procedure' },
+    { name: 'Post-Session', color: 'green', description: 'Cleanup and debriefing' },
+    { name: 'Critical Phase', color: 'red', description: 'High-intensity procedure' },
+    { name: 'Teaching Moment', color: 'yellow', description: 'Educational discussion' },
+    { name: 'Break', color: 'purple', description: 'Pause or break period' }
+  ];
+
+  // Generate unique ID for segments
+  const generateSegmentId = () => {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  };
+
+  // Get segment color classes
+  const getSegmentColorClasses = (color: string) => {
+    const colorMap = {
+      blue: 'bg-blue-500 border-blue-400 text-blue-100',
+      green: 'bg-green-500 border-green-400 text-green-100',
+      red: 'bg-red-500 border-red-400 text-red-100',
+      yellow: 'bg-yellow-500 border-yellow-400 text-yellow-100',
+      purple: 'bg-purple-500 border-purple-400 text-purple-100',
+      gray: 'bg-gray-500 border-gray-400 text-gray-100',
+      orange: 'bg-orange-500 border-orange-400 text-orange-100',
+      indigo: 'bg-indigo-500 border-indigo-400 text-indigo-100'
+    };
+    return colorMap[color as keyof typeof colorMap] || colorMap.blue;
+  };
+
+  // Add new segment
+  const handleAddSegment = () => {
+    if (!newSegment.name || newSegment.startTime >= newSegment.endTime) return;
+    
+    const segment: TimelineSegment = {
+      id: generateSegmentId(),
+      name: newSegment.name,
+      startTime: newSegment.startTime,
+      endTime: Math.min(newSegment.endTime, duration),
+      color: newSegment.color,
+      description: newSegment.description
+    };
+
+    setTimelineSegments(prev => [...prev, segment].sort((a, b) => a.startTime - b.startTime));
+    setNewSegment({
+      name: '',
+      startTime: currentTime,
+      endTime: Math.min(currentTime + 300, duration), // Default 5 minutes
+      color: 'blue',
+      description: ''
+    });
+  };
+
+  // Edit segment
+  const handleEditSegment = (segment: TimelineSegment) => {
+    setEditingSegment(segment);
+    setNewSegment({
+      name: segment.name,
+      startTime: segment.startTime,
+      endTime: segment.endTime,
+      color: segment.color,
+      description: segment.description || ''
+    });
+  };
+
+  // Save edited segment
+  const handleSaveSegment = () => {
+    if (!editingSegment || !newSegment.name || newSegment.startTime >= newSegment.endTime) return;
+
+    setTimelineSegments(prev => 
+      prev.map(segment => 
+        segment.id === editingSegment.id 
+          ? {
+              ...segment,
+              name: newSegment.name,
+              startTime: newSegment.startTime,
+              endTime: Math.min(newSegment.endTime, duration),
+              color: newSegment.color,
+              description: newSegment.description
+            }
+          : segment
+      ).sort((a, b) => a.startTime - b.startTime)
+    );
+
+    setEditingSegment(null);
+    setNewSegment({
+      name: '',
+      startTime: currentTime,
+      endTime: Math.min(currentTime + 300, duration),
+      color: 'blue',
+      description: ''
+    });
+  };
+
+  // Delete segment
+  const handleDeleteSegment = (segmentId: string) => {
+    setTimelineSegments(prev => prev.filter(segment => segment.id !== segmentId));
+  };
+
+  // Navigate to segment
+  const handleNavigateToSegment = (segment: TimelineSegment) => {
+    onSeek(segment.startTime);
+    
+    // Auto-adjust zoom to show the segment
+    if (zoomLevel === 1) {
+      const segmentDuration = segment.endTime - segment.startTime;
+      if (segmentDuration < duration / 4) {
+        const newZoomLevel = Math.min(10, duration / segmentDuration);
+        setZoomLevel(newZoomLevel);
+        const newViewportDuration = duration / newZoomLevel;
+        const newStart = Math.max(0, segment.startTime - newViewportDuration * 0.1);
+        setViewportStart(clampViewport(newStart));
+      }
+    }
+  };
+
+  // Quick add segment at current time
+  const handleQuickAddSegment = (template: typeof segmentTemplates[0]) => {
+    const startTime = currentTime;
+    const endTime = Math.min(currentTime + 300, duration); // Default 5 minutes
+
+    const segment: TimelineSegment = {
+      id: generateSegmentId(),
+      name: template.name,
+      startTime,
+      endTime,
+      color: template.color,
+      description: template.description
+    };
+
+    setTimelineSegments(prev => [...prev, segment].sort((a, b) => a.startTime - b.startTime));
+  };
+
+  // Get current active segment
+  const getCurrentActiveSegment = () => {
+    return timelineSegments.find(
+      segment => currentTime >= segment.startTime && currentTime <= segment.endTime
+    ) || null;
+  };
+
+  // Update newSegment defaults when duration or current time changes
+  useEffect(() => {
+    if (duration > 0 && !editingSegment) {
+      setNewSegment(prev => ({
+        ...prev,
+        startTime: currentTime,
+        endTime: Math.min(currentTime + 300, duration)
+      }));
+    }
+  }, [duration, currentTime, editingSegment]);
+
+  // Render timeline segments
+  const renderTimelineSegments = () => {
+    if (duration === 0 || timelineSegments.length === 0) return null;
+
+    const viewportEnd = getViewportEnd();
+
+    return timelineSegments
+      .filter(segment => {
+        // Only show segments that are visible in current viewport
+        if (zoomLevel === 1) return true;
+        return segment.endTime >= viewportStart && segment.startTime <= viewportEnd;
+      })
+      .map((segment) => {
+        const startPosition = timeToTimelinePosition(segment.startTime);
+        const endPosition = timeToTimelinePosition(segment.endTime);
+        const segmentWidth = Math.max(0, endPosition - startPosition);
+        const isActive = currentTime >= segment.startTime && currentTime <= segment.endTime;
+        const colorClasses = getSegmentColorClasses(segment.color);
+        
+        return (
+          <div
+            key={segment.id}
+            className="absolute z-10"
+            style={{ 
+              left: `${startPosition}%`,
+              width: `${segmentWidth}%`,
+              top: '-20px',
+              height: '16px'
+            }}
+          >
+            <div
+              className={`relative cursor-pointer transition-all duration-300 ${colorClasses} border-2 rounded-lg shadow-lg overflow-hidden group ${
+                isActive ? 'ring-2 ring-white ring-opacity-60' : ''
+              }`}
+              style={{
+                height: '16px',
+                minWidth: '20px',
+                opacity: 0.8
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNavigateToSegment(segment);
+              }}
+              title={`${segment.name} (${formatTime(segment.startTime)} - ${formatTime(segment.endTime)}): ${segment.description || 'Click to navigate'}`}
+            >
+              {/* Segment content */}
+              <div className="w-full h-full flex items-center justify-center px-1">
+                {segmentWidth > 8 && ( // Only show text if segment is wide enough
+                  <span className="text-xs font-medium truncate">
+                    {segment.name}
+                  </span>
+                )}
+              </div>
+              
+              {/* Active pulse animation */}
+              {isActive && (
+                <div className={`absolute inset-0 ${colorClasses.split(' ')[0]} rounded-lg animate-pulse opacity-40`}></div>
+              )}
+              
+              {/* Hover overlay */}
+              <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity duration-200 rounded-lg"></div>
+            </div>
+            
+            {/* Segment tooltip on hover */}
+            <div className="absolute -top-20 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+              <div className="bg-gray-900/95 text-white px-3 py-2 rounded-lg text-xs max-w-48 text-center shadow-xl border border-gray-600">
+                <div className="font-semibold mb-1">{segment.name}</div>
+                <div className="text-gray-300 mb-1">
+                  {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
+                </div>
+                {segment.description && (
+                  <div className="text-gray-200 text-left">
+                    {segment.description}
+                  </div>
+                )}
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-l-transparent border-r-transparent border-t-gray-900/95"></div>
+              </div>
+            </div>
+          </div>
+        );
+      });
+  };
+
+  // Ensure the filename is properly URI-encoded (parentheses, spaces, etc.)
+  const encodedSrc = React.useMemo(() => {
+    try {
+      const lastSlash = src.lastIndexOf('/');
+      if (lastSlash === -1) return encodeURI(src);
+      const basePath = src.substring(0, lastSlash + 1); // include slash
+      const fileName = src.substring(lastSlash + 1);
+      return basePath + encodeURIComponent(fileName);
+    } catch {
+      return encodeURI(src);
+    }
+  }, [src]);
 
   // Sync playing state with video element
   useEffect(() => {
@@ -61,10 +484,19 @@ const CustomVideoPlayer = ({
   // Sync currentTime prop with video element (for external seek requests)
   useEffect(() => {
     if (videoRef.current && Math.abs(videoRef.current.currentTime - currentTime) > 0.5) {
-      // Only seek if there's a significant difference to avoid conflicts with natural playback
       videoRef.current.currentTime = currentTime;
     }
   }, [currentTime]);
+
+  // Handle video source changes
+  useEffect(() => {
+    // Reset duration when src changes
+    setDuration(0);
+    setVideoError(null); // Clear any previous errors
+    if (videoRef.current) {
+      videoRef.current.load(); // Force reload the video
+    }
+  }, [src]);
 
   // Set up time update interval
   useEffect(() => {
@@ -75,11 +507,7 @@ const CustomVideoPlayer = ({
           const time = videoRef.current.currentTime;
           onTimeUpdate(time);
           
-          // Check for active comments based on current time
-          const currentComment = comments.find(comment => 
-            Math.abs(comment.timestamp - time) < 2 // Within 2 seconds of timestamp
-          );
-          setActiveComment(currentComment || null);
+          // Check for active comments based on current time (handled by getCurrentActiveComment)
         }
       }, 100); // 10fps updates for smooth timeline
     }
@@ -87,8 +515,24 @@ const CustomVideoPlayer = ({
   }, [isPlaying, onTimeUpdate, comments]);
 
   const handleLoadedData = () => {
-    if (videoRef.current) {
-      const videoDuration = videoRef.current.duration;
+    if (!videoRef.current) return;
+
+    let videoDuration = videoRef.current.duration;
+
+    // Some video sources (e.g. streams) may report Infinity or 0. Attempt to derive a usable
+    // duration from the seekable range instead.
+    if (!videoDuration || !isFinite(videoDuration)) {
+      try {
+        const seekable = videoRef.current.seekable;
+        if (seekable && seekable.length > 0) {
+          videoDuration = seekable.end(seekable.length - 1);
+        }
+      } catch (err) {
+        // Gracefully ignore – will fall back to 0 below
+      }
+    }
+
+    if (videoDuration && isFinite(videoDuration) && videoDuration > 0) {
       setDuration(videoDuration);
     }
   };
@@ -101,12 +545,15 @@ const CustomVideoPlayer = ({
   };
 
   const handleTimelineClick = (e: React.MouseEvent) => {
-    if (timelineRef.current && duration > 0) {
-      const rect = timelineRef.current.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const newTime = (clickX / rect.width) * duration;
-      const clampedTime = Math.max(0, Math.min(newTime, duration));
-      
+    // Use the validated duration state instead of the raw element duration to avoid Infinity/0 issues
+    if (!duration || !isFinite(duration)) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const newTime = timelinePositionToTime(e.clientX, rect);
+    const clampedTime = Math.max(0, Math.min(newTime, duration));
+
+    // Only seek if the computed time is finite
+    if (isFinite(clampedTime)) {
       handleSeek(clampedTime);
     }
   };
@@ -209,59 +656,145 @@ const CustomVideoPlayer = ({
 
   // Handle timeline drag for better scrubbing
   const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    handleTimelineClick(e);
-  };
-
-  const handleMouseUpOrLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleTimelineDrag = (e: React.MouseEvent) => {
-    if (isDragging) {
+    e.preventDefault();
+    if (zoomLevel > 1 && e.shiftKey) {
+      // Shift+click to pan
+      handlePanStart(e);
+    } else {
+      setIsDragging(true);
       handleTimelineClick(e);
     }
   };
 
-  // Render modern comment annotations on timeline
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+    handlePanEnd();
+  };
+
+  const handleTimelineDrag = (e: React.MouseEvent) => {
+    if (isPanning) {
+      handlePanMove(e);
+    } else if (isDragging) {
+      handleTimelineClick(e);
+    }
+  };
+
+  // Calculate duration spans for comments using individual comment durations
+  const getCommentDurations = () => {
+    if (comments.length === 0) return [];
+    
+    // Sort comments by timestamp
+    const sortedComments = [...comments].sort((a, b) => a.timestamp - b.timestamp);
+    
+    return sortedComments.map((comment, index) => {
+      const startTime = comment.timestamp;
+      const commentDuration = comment.duration || 30; // Use comment's individual duration, fallback to 30s
+      const nextComment = sortedComments[index + 1];
+      
+      // Calculate end time
+      let endTime: number;
+      if (nextComment) {
+        // If next comment is within this comment's duration, end before it starts
+        const timeToNext = nextComment.timestamp - startTime;
+        endTime = timeToNext < commentDuration ? 
+          nextComment.timestamp - 2 : // 2 second gap before next comment
+          startTime + commentDuration;
+      } else {
+        // Last comment or no next comment - use comment duration or video end
+        endTime = Math.min(startTime + commentDuration, duration);
+      }
+      
+      return {
+        ...comment,
+        startTime,
+        endTime,
+        duration: endTime - startTime
+      };
+    });
+  };
+
+  // Render modern duration-based annotations on timeline
   const renderAnnotations = () => {
     if (duration === 0) return null;
 
-    return comments.map((comment) => {
-      const position = (comment.timestamp / duration) * 100;
+    const commentDurations = getCommentDurations();
+    const viewportEnd = getViewportEnd();
+
+    return commentDurations
+      .filter(comment => {
+        // Only show annotations that are visible in current viewport
+        if (zoomLevel === 1) return true;
+        return comment.endTime >= viewportStart && comment.startTime <= viewportEnd;
+      })
+      .map((comment) => {
+        const startPosition = timeToTimelinePosition(comment.startTime);
+        const endPosition = timeToTimelinePosition(comment.endTime);
+        const spanWidth = Math.max(0, endPosition - startPosition);
       const commentType = getCommentType(comment);
       const colorClass = getCommentColor(commentType);
+      const isActive = currentTime >= comment.startTime && currentTime <= comment.endTime;
       
       return (
         <div
           key={comment.name}
-          className="absolute transform -translate-x-1/2 z-30"
-          style={{ left: `${position}%` }}
+          className="absolute z-30"
+          style={{ 
+            left: `${startPosition}%`,
+            width: `${spanWidth}%`,
+            top: '8px'
+          }}
         >
-          {/* Comment Marker */}
+          {/* Compact Duration Bar */}
           <div
-            className={`relative cursor-pointer transition-all duration-300 transform hover:scale-125 hover:-translate-y-1 ${colorClass} border-2 rounded-lg shadow-lg`}
+            className={`relative cursor-pointer transition-all duration-300 ${colorClass} border rounded shadow-sm overflow-hidden group ${
+              isActive ? 'ring-1 ring-white ring-opacity-60' : ''
+            }`}
             style={{
-              width: '16px',
-              height: '32px',
-              top: '8px'
+              height: '18px',
+              minWidth: '12px'
             }}
             onClick={(e) => {
               e.stopPropagation();
-              handleSeek(comment.timestamp);
+              handleSeek(comment.startTime);
             }}
-            title={`${comment.doctor_name || comment.doctor} - ${formatTime(comment.timestamp)}: Click to jump`}
+            title={`${comment.doctor_name || comment.doctor} - ${formatTime(comment.startTime)} to ${formatTime(comment.endTime)}`}
           >
-            <div className="w-full h-full flex flex-col items-center justify-center">
-              {getCommentIcon(commentType)}
-              <div className="w-1 h-1 bg-white rounded-full mt-1"></div>
+            {/* Compact Content */}
+            <div className="w-full h-full flex items-center justify-between px-1">
+              <div className="flex items-center gap-1">
+                {spanWidth > 15 && getCommentIcon(commentType)}
+                {spanWidth > 25 && (
+                  <span className="text-white text-xs font-medium truncate max-w-16">
+                    {comment.doctor_name?.split(' ')[0] || comment.doctor.split('-')[0]}
+                  </span>
+                )}
+              </div>
+              {spanWidth > 20 && (
+                <span className="text-white text-xs">
+                  {Math.round(comment.endTime - comment.startTime)}s
+                </span>
+              )}
             </div>
             
-            {/* Pulse animation for active comments */}
-            <div className={`absolute inset-0 ${colorClass.split(' ')[0]} rounded-lg animate-ping opacity-30`}></div>
-            
-            {/* Timeline extension line */}
-            <div className={`absolute top-full left-1/2 transform -translate-x-1/2 w-0.5 h-2 ${colorClass.split(' ')[0]}`}></div>
+            {/* Active indicator */}
+            {isActive && (
+              <div className="absolute bottom-0 left-0 h-0.5 bg-white transition-all duration-200"
+                style={{ 
+                  width: `${((currentTime - comment.startTime) / (comment.endTime - comment.startTime)) * 100}%`
+                }}
+              ></div>
+            )}
+          </div>
+          
+          {/* Compact Tooltip */}
+          <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            <div className="bg-gray-900/95 text-white px-2 py-1 rounded text-xs max-w-48 text-center shadow-lg border border-gray-600">
+              <div className="font-medium">{comment.doctor_name || comment.doctor}</div>
+              <div className="text-gray-300 text-xs">
+                {formatTime(comment.startTime)}-{formatTime(comment.endTime)}
+              </div>
+              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-l-transparent border-r-transparent border-t-gray-900/95"></div>
+            </div>
           </div>
         </div>
       );
@@ -278,36 +811,50 @@ const CustomVideoPlayer = ({
     ];
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-2">
         {commentTypes.map((typeInfo) => {
           const typeComments = comments.filter(c => getCommentType(c) === typeInfo.type);
           
           return (
-            <div key={typeInfo.type} className="space-y-2">
-              {/* Timeline Header */}
+            <div key={typeInfo.type} className="space-y-1">
+              {/* Compact Timeline Header */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 ${typeInfo.color} rounded-full`}></div>
-                  <span className="text-white text-sm font-medium">{typeInfo.label}</span>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 ${typeInfo.color} rounded-full`}></div>
+                  <span className="text-white text-xs font-medium">{typeInfo.label}</span>
                   <span className="text-gray-400 text-xs">({typeComments.length})</span>
-                </div>
-                <div className="text-gray-400 text-xs font-mono">
-                  {formatTime(currentTime)} / {formatTime(duration)}
                 </div>
               </div>
 
-              {/* Individual Timeline */}
+              {/* Compact Individual Timeline */}
               <div className="relative">
                 <div 
-                  className="relative h-8 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded-lg shadow-inner border border-gray-600 cursor-pointer transition-all duration-200"
+                  className="relative h-5 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded shadow-inner border border-gray-600 cursor-pointer transition-all duration-200"
                   onClick={(e) => {
-                    if (timelineRef.current && duration > 0) {
+                    if (duration > 0 && isFinite(duration)) {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const clickX = e.clientX - rect.left;
                       const newTime = (clickX / rect.width) * duration;
                       const clampedTime = Math.max(0, Math.min(newTime, duration));
                       
-                      handleSeek(clampedTime);
+                      // Only seek if the computed time is finite
+                      if (isFinite(clampedTime)) {
+                        handleSeek(clampedTime);
+                      }
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                    if (duration > 0 && isFinite(duration)) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const newTime = (clickX / rect.width) * duration;
+                      const clampedTime = Math.max(0, Math.min(newTime, duration));
+                      
+                      if (isFinite(clampedTime)) {
+                        handleSeek(clampedTime);
+                      }
                     }
                   }}
                   onMouseMove={(e) => {
@@ -318,11 +865,24 @@ const CustomVideoPlayer = ({
                       const clampedTime = Math.max(0, Math.min(time, duration));
                       setHoverTime(clampedTime);
                     }
+                    // Handle dragging
+                    if (isDragging && duration > 0 && isFinite(duration)) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const newTime = (clickX / rect.width) * duration;
+                      const clampedTime = Math.max(0, Math.min(newTime, duration));
+                      
+                      if (isFinite(clampedTime)) {
+                        handleSeek(clampedTime);
+                      }
+                    }
                   }}
+                  onMouseUp={() => setIsDragging(false)}
                   onMouseEnter={() => setIsTimelineHovered(true)}
                   onMouseLeave={() => {
                     setIsTimelineHovered(false);
                     setHoverTime(null);
+                    setIsDragging(false);
                   }}
                 >
                   {/* Progress Bar */}
@@ -333,39 +893,81 @@ const CustomVideoPlayer = ({
                     <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                   </div>
 
-                  {/* Comment Markers for this type only */}
-                  {typeComments.map((comment) => {
-                    const position = (comment.timestamp / duration) * 100;
-                    
-                    return (
-                      <div
-                        key={comment.name}
-                        className="absolute transform -translate-x-1/2 z-30"
-                        style={{ left: `${position}%` }}
-                      >
+                  {/* Duration-based Comment Markers for this type only */}
+                  {getCommentDurations()
+                    .filter(c => getCommentType(c) === typeInfo.type)
+                    .map((comment) => {
+                      const startPosition = (comment.startTime / duration) * 100;
+                      const spanWidth = ((comment.endTime - comment.startTime) / duration) * 100;
+                      const isActive = currentTime >= comment.startTime && currentTime <= comment.endTime;
+                      
+                      return (
                         <div
-                          className={`relative cursor-pointer transition-all duration-300 transform hover:scale-125 hover:-translate-y-1 ${typeInfo.color} hover:${typeInfo.color.replace('bg-', 'bg-').replace('-500', '-400')} border-2 ${typeInfo.borderColor} rounded-lg shadow-lg`}
-                          style={{
-                            width: '12px',
-                            height: '24px',
+                          key={comment.name}
+                          className="absolute z-30"
+                          style={{ 
+                            left: `${startPosition}%`,
+                            width: `${spanWidth}%`,
                             top: '2px'
                           }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSeek(comment.timestamp);
-                          }}
-                          title={`${comment.doctor_name || comment.doctor} - ${formatTime(comment.timestamp)}: ${comment.comment_text.substring(0, 50)}${comment.comment_text.length > 50 ? '...' : ''}`}
                         >
-                          <div className="w-full h-full flex flex-col items-center justify-center">
-                            {getCommentIcon(typeInfo.type)}
+                          <div
+                            className={`relative cursor-pointer transition-all duration-300 ${typeInfo.color} border ${typeInfo.borderColor} rounded shadow-sm overflow-hidden group ${
+                              isActive ? 'ring-1 ring-white ring-opacity-60' : ''
+                            }`}
+                            style={{
+                              height: '16px',
+                              minWidth: '8px'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isFinite(comment.startTime)) {
+                                handleSeek(comment.startTime);
+                              }
+                            }}
+                            title={`${comment.doctor_name || comment.doctor} - ${formatTime(comment.startTime)} to ${formatTime(comment.endTime)}`}
+                          >
+                            {/* Compact Content for multi-timeline */}
+                            <div className="w-full h-full flex items-center justify-between px-1">
+                              <div className="flex items-center">
+                                {spanWidth > 8 && getCommentIcon(typeInfo.type)}
+                                {spanWidth > 15 && (
+                                  <span className="text-white text-xs font-medium truncate ml-1 max-w-12">
+                                    {comment.doctor_name?.split(' ')[0] || comment.doctor.split('-')[0]}
+                                  </span>
+                                )}
+                              </div>
+                              {spanWidth > 20 && (
+                                <span className="text-white text-xs">
+                                  {Math.round(comment.endTime - comment.startTime)}s
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Active indicator */}
+                            {isActive && (
+                              <div 
+                                className="absolute bottom-0 left-0 h-0.5 bg-white transition-all duration-200"
+                                style={{ 
+                                  width: `${((currentTime - comment.startTime) / (comment.endTime - comment.startTime)) * 100}%`
+                                }}
+                              ></div>
+                            )}
                           </div>
                           
-                          {/* Pulse animation */}
-                          <div className={`absolute inset-0 ${typeInfo.color} rounded-lg animate-ping opacity-30`}></div>
+                          {/* Compact tooltip for multi-timeline */}
+                          <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                            <div className="bg-gray-900/95 text-white px-2 py-1 rounded text-xs max-w-32 text-center shadow-lg border border-gray-600">
+                              <div className="font-medium text-xs">{comment.doctor_name || comment.doctor}</div>
+                              <div className="text-gray-300 text-xs">
+                                {formatTime(comment.startTime)}-{formatTime(comment.endTime)}
+                              </div>
+                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-l-transparent border-r-transparent border-t-gray-900/95"></div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
 
                   {/* Playhead for each timeline */}
                   <div
@@ -377,12 +979,12 @@ const CustomVideoPlayer = ({
                     </div>
                   </div>
 
-                  {/* Hover time indicator */}
-                  {isTimelineHovered && hoverTime !== null && (
-                    <div 
-                      className="absolute top-0 w-px h-full bg-white/70 z-50 pointer-events-none transition-opacity duration-200"
-                      style={{ left: `${(hoverTime / duration) * 100}%` }}
-                    >
+                                  {/* Hover time indicator */}
+                {isTimelineHovered && hoverTime !== null && (
+                  <div 
+                    className="absolute top-0 w-px h-full bg-white/70 z-50 pointer-events-none transition-opacity duration-200"
+                    style={{ left: `${timeToTimelinePosition(hoverTime)}%` }}
+                  >
                       <div className="absolute -top-8 -left-6 bg-gray-900/95 text-white px-2 py-1 rounded text-xs font-mono whitespace-nowrap shadow-xl border border-gray-600 z-50">
                         {formatTime(hoverTime)}
                       </div>
@@ -403,13 +1005,90 @@ const CustomVideoPlayer = ({
       <div className="relative aspect-video bg-black">
         <video
           ref={videoRef}
-          src={src}
+          key={src}
           onLoadedData={handleLoadedData}
-          onSeeked={() => onTimeUpdate(videoRef.current?.currentTime || 0)}
+          onLoadedMetadata={handleLoadedData}
+          onCanPlay={handleLoadedData}
+          onDurationChange={handleLoadedData}
+          onError={(e) => {
+            console.error('CustomVideoPlayer - Video error:', {
+              title,
+              src,
+              error: e.currentTarget.error,
+              readyState: e.currentTarget.readyState,
+              networkState: e.currentTarget.networkState,
+              errorCode: e.currentTarget.error?.code,
+              errorMessage: e.currentTarget.error?.message
+            });
+            
+            // Show user-friendly error message
+            let errorMessage = 'Failed to load video';
+            if (e.currentTarget.error?.code === 4) {
+              errorMessage = 'Video format not supported or file corrupted';
+            } else if (e.currentTarget.networkState === 3) {
+              errorMessage = 'Network error loading video';
+            } else if (e.currentTarget.error?.code === 3) {
+              errorMessage = 'Video file not found or access denied';
+            }
+            
+            setVideoError(errorMessage);
+          }}
+
           controls={false}
+          crossOrigin="anonymous"
+          preload="metadata"
+          playsInline
+          muted={false}
+          autoPlay={false}
+          loop={false}
           className="w-full h-full object-contain"
           onClick={() => onPlayPause(!isPlaying)}
-        />
+          style={{ 
+            objectFit: 'contain',
+            backgroundColor: 'black'
+          }}
+        >
+          <source src={encodedSrc} type="video/mp4; codecs=avc1.42E01E,mp4a.40.2" />
+          <source src={encodedSrc} type="video/mp4" />
+          <source src={encodedSrc} type="video/webm; codecs=vp8,vorbis" />
+          <source src={encodedSrc} type="video/webm" />
+          <source src={encodedSrc} type="video/ogg; codecs=theora,vorbis" />
+          <source src={encodedSrc} type="video/avi" />
+          <source src={encodedSrc} type="video/quicktime" />
+          <p className="text-white text-center p-4">
+            Your browser doesn't support HTML5 video. Here is a{' '}
+            <a href={encodedSrc} className="text-blue-400 hover:text-blue-300" target="_blank" rel="noopener noreferrer">
+              link to the video
+            </a>{' '}
+            instead.
+          </p>
+        </video>
+        
+        {/* Error Overlay */}
+        {videoError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50">
+            <div className="text-center p-8 max-w-md">
+              <AlertTriangle size={48} className="mx-auto text-red-400 mb-4" />
+              <h3 className="text-xl font-semibold text-white mb-2">Video Load Error</h3>
+              <p className="text-gray-300 mb-4">{videoError}</p>
+              <p className="text-sm text-gray-400">Source: {src}</p>
+              <button
+                onClick={() => {
+                  setVideoError(null);
+                  if (videoRef.current) {
+                    videoRef.current.load();
+                  }
+                }}
+                className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Seeking Overlay */}
+        {/* Removed seeking overlay as per edit hint */}
         
         {/* Video Overlay Info */}
         <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg backdrop-blur-sm">
@@ -417,50 +1096,53 @@ const CustomVideoPlayer = ({
           <div className="text-xs text-white/80">{formatTime(currentTime)} / {formatTime(duration)}</div>
         </div>
 
-        {/* Active Comment Overlay */}
-        {activeComment && (
-          <div className="absolute bottom-4 left-4 right-4 bg-gradient-to-r from-black/90 via-black/80 to-black/90 backdrop-blur-sm text-white p-4 rounded-xl border border-white/20 shadow-2xl animate-fade-in-up z-50">
-            <div className="flex items-start gap-3">
-              <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${getCommentColor(getCommentType(activeComment)).split(' ')[0]}`}></div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="flex items-center gap-2">
-                    <User size={14} className="text-blue-400" />
-                    <span className="font-semibold text-sm">{activeComment.doctor_name || activeComment.doctor}</span>
+        {/* Compact Active Comment Overlay */}
+        {(() => {
+          const currentActiveComment = getCurrentActiveComment();
+          if (!currentActiveComment) return null;
+          
+          const commentType = getCommentType(currentActiveComment);
+          const progress = ((currentTime - currentActiveComment.startTime) / (currentActiveComment.endTime - currentActiveComment.startTime)) * 100;
+          
+          return (
+            <div className="absolute bottom-2 left-2 right-2 bg-black/90 backdrop-blur-sm text-white p-2 rounded-lg border border-white/20 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getCommentColor(commentType).split(' ')[0]}`}></div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-xs truncate">{currentActiveComment.doctor_name || currentActiveComment.doctor}</span>
+                    <span className="text-xs text-gray-400 font-mono">
+                      {formatTime(currentActiveComment.startTime)}-{formatTime(currentActiveComment.endTime)}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {Math.round((currentActiveComment.endTime - currentTime))}s
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock size={14} className="text-gray-400" />
-                    <span className="text-xs text-gray-300 font-mono">{formatTime(activeComment.timestamp)}</span>
+                  <div className="text-xs text-gray-200 mb-1 line-clamp-2">
+                    {currentActiveComment.comment_text}
                   </div>
-                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    getCommentType(activeComment) === 'positive' ? 'bg-green-600/30 text-green-300' :
-                    getCommentType(activeComment) === 'warning' ? 'bg-yellow-600/30 text-yellow-300' :
-                    getCommentType(activeComment) === 'critical' ? 'bg-red-600/30 text-red-300' :
-                    'bg-blue-600/30 text-blue-300'
-                  }`}>
-                    {getCommentType(activeComment) === 'positive' ? 'Positive' :
-                     getCommentType(activeComment) === 'warning' ? 'Attention' :
-                     getCommentType(activeComment) === 'critical' ? 'Critical' :
-                     'General'}
+                  {/* Compact progress bar */}
+                  <div className="w-full bg-gray-700/50 rounded-full h-1">
+                    <div 
+                      className={`h-1 rounded-full transition-all duration-300 ${getCommentColor(commentType).split(' ')[0]}`}
+                      style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+                    ></div>
                   </div>
                 </div>
-                <div className="text-sm text-gray-200 leading-relaxed">
-                  {activeComment.comment_text}
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSeek(currentActiveComment.endTime);
+                  }}
+                  className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
+                  title="Skip"
+                >
+                  <SkipForward size={12} />
+                </button>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveComment(null);
-                }}
-                className="text-gray-400 hover:text-white transition-colors duration-200 p-1 rounded-lg hover:bg-white/10 z-50"
-                title="Dismiss"
-              >
-                ✕
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Play/Pause Overlay */}
         <div 
@@ -478,54 +1160,54 @@ const CustomVideoPlayer = ({
       </div>
 
       {/* Custom Controls */}
-      <div className="bg-gray-800 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="bg-gray-800 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
           {/* Rewind */}
           <button
             onClick={skipBackward}
-            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200"
+            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
             title="Skip backward 10s"
           >
-            <SkipBack size={18} />
+            <SkipBack size={24} />
           </button>
 
           {/* Play/Pause */}
           <button
             onClick={() => onPlayPause(!isPlaying)}
-            className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200"
+            className="p-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
             title={isPlaying ? "Pause" : "Play"}
           >
-            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+            {isPlaying ? <Pause size={24} /> : <Play size={24} />}
           </button>
 
           {/* Fast Forward */}
           <button
             onClick={skipForward}
-            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200"
+            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
             title="Skip forward 10s"
           >
-            <SkipForward size={18} />
+            <SkipForward size={24} />
           </button>
 
           {/* Playback Speed */}
           <button
             onClick={handlePlaybackRateChange}
-            className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors duration-200"
+            className="px-6 py-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-lg font-medium transition-colors duration-200 min-h-[56px] flex items-center justify-center"
             title="Playback speed"
           >
             {playbackRate}x
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {/* Time Display */}
-          <span className="text-white font-mono text-sm">
+          <span className="text-white font-mono text-lg font-medium">
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
 
           {/* Volume */}
-          <div className="flex items-center gap-2">
-            <Volume2 size={18} className="text-gray-300" />
+          <div className="flex items-center gap-3">
+            <Volume2 size={24} className="text-gray-300" />
             <input
               type="range"
               min="0"
@@ -533,102 +1215,295 @@ const CustomVideoPlayer = ({
               step="0.1"
               value={volume}
               onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-              className="w-20 h-1 bg-gray-600 rounded-full appearance-none cursor-pointer"
+              className="w-24 h-2 bg-gray-600 rounded-full appearance-none cursor-pointer touch-manipulation"
+              style={{
+                WebkitAppearance: 'none',
+                height: '8px',
+              }}
             />
           </div>
 
           {/* Fullscreen */}
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200"
+            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
             title="Fullscreen"
           >
-            <Maximize2 size={18} />
+            <Maximize2 size={24} />
           </button>
         </div>
       </div>
 
-      {/* Modern Interactive Timeline */}
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-6 border-t border-gray-700">
-        {/* Header with enhanced stats and timeline mode toggle */}
-        <div className="mb-4 flex items-center justify-between">
+      {/* Modern Interactive Timeline - REDESIGNED FOR COMPACT VIEW */}
+      <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-4 border-t border-gray-700">
+        {/* Compact Header */}
+        <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Clock size={18} className="text-blue-400" />
-              <span className="text-white text-lg font-semibold">Timeline & Annotations</span>
+              <Clock size={16} className="text-blue-400" />
+              <span className="text-white text-sm font-medium">Timeline</span>
             </div>
-            <div className="h-6 w-px bg-gray-600"></div>
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span className="text-gray-300">{comments.filter(c => getCommentType(c) === 'neutral').length} General</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span className="text-gray-300">{comments.filter(c => getCommentType(c) === 'positive').length} Positive</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                <span className="text-gray-300">{comments.filter(c => getCommentType(c) === 'warning').length} Attention</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                <span className="text-gray-300">{comments.filter(c => getCommentType(c) === 'critical').length} Critical</span>
-              </div>
+            {/* Compact Stats */}
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <span className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                {comments.filter(c => getCommentType(c) === 'neutral').length}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                {comments.filter(c => getCommentType(c) === 'positive').length}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                {comments.filter(c => getCommentType(c) === 'warning').length}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                {comments.filter(c => getCommentType(c) === 'critical').length}
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Timeline Mode Toggle */}
-            <div className="flex items-center gap-2 bg-gray-700/50 p-1 rounded-lg border border-gray-600">
+          
+          <div className="flex items-center gap-2">
+            {/* Compact Zoom Controls */}
+            <div className="flex items-center gap-1 bg-gray-700/50 p-1 rounded-lg">
+              <button
+                onClick={handleZoomOut}
+                disabled={zoomLevel <= 1}
+                className={`p-1.5 rounded text-xs transition-colors ${
+                  zoomLevel <= 1 ? 'text-gray-500' : 'text-gray-300 hover:text-white hover:bg-gray-600'
+                }`}
+                title="Zoom out"
+              >
+                <ZoomOut size={12} />
+              </button>
+              <span className="text-white text-xs font-mono px-2 min-w-[32px] text-center">
+                {zoomLevel === 1 ? '1x' : `${zoomLevel.toFixed(1)}x`}
+              </span>
+              <button
+                onClick={handleZoomIn}
+                disabled={zoomLevel >= 20}
+                className={`p-1.5 rounded text-xs transition-colors ${
+                  zoomLevel >= 20 ? 'text-gray-500' : 'text-gray-300 hover:text-white hover:bg-gray-600'
+                }`}
+                title="Zoom in"
+              >
+                <ZoomIn size={12} />
+              </button>
+              {zoomLevel > 1 && (
+                <button
+                  onClick={handleZoomReset}
+                  className="p-1.5 rounded text-xs text-yellow-400 hover:text-yellow-300 hover:bg-gray-600 transition-colors"
+                  title="Reset"
+                >
+                  <RotateCcw size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Compact Segments Toggle */}
+            <button
+              onClick={() => setShowSegmentManager(!showSegmentManager)}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                showSegmentManager ? 'bg-green-600 text-white' : 'bg-gray-700/50 text-gray-300 hover:text-white'
+              }`}
+              title="Segments"
+            >
+              <Scissors size={12} />
+              {timelineSegments.length > 0 && <span>{timelineSegments.length}</span>}
+            </button>
+
+            {/* Compact Timeline Mode Toggle */}
+            <div className="flex bg-gray-700/50 rounded-lg overflow-hidden">
               <button
                 onClick={() => setTimelineMode('single')}
-                className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-medium transition-all duration-200 ${
-                  timelineMode === 'single'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-gray-300 hover:text-white hover:bg-gray-600'
+                className={`px-2 py-1.5 text-xs transition-colors ${
+                  timelineMode === 'single' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'
                 }`}
-                title="Single timeline with all comments"
+                title="Single"
               >
                 <Minus size={12} />
-                Single
               </button>
               <button
                 onClick={() => setTimelineMode('multi')}
-                className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-medium transition-all duration-200 ${
-                  timelineMode === 'multi'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-gray-300 hover:text-white hover:bg-gray-600'
+                className={`px-2 py-1.5 text-xs transition-colors ${
+                  timelineMode === 'multi' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'
                 }`}
-                title="Separate timeline for each comment type"
+                title="Multi"
               >
-                <LayoutGrid size={12} />
-                Multi
+                <BarChart size={12} />
               </button>
-            </div>
-            <div className="text-gray-400 text-sm font-mono">
-              {formatTime(currentTime)} / {formatTime(duration)}
             </div>
           </div>
         </div>
 
-        {/* Timeline Container with conditional rendering */}
-        <div className="relative pt-4">
+        {/* Compact Segment Manager Panel */}
+        {showSegmentManager && (
+          <div className="mb-3 bg-gray-800/50 rounded-lg border border-gray-600 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-white flex items-center gap-1">
+                <Scissors size={14} className="text-green-400" />
+                Segments
+              </h3>
+            </div>
+
+            {/* Compact Quick Add */}
+            <div className="mb-2">
+              <div className="flex flex-wrap gap-1 mb-2">
+                {segmentTemplates.map((template) => (
+                  <button
+                    key={template.name}
+                    onClick={() => handleQuickAddSegment(template)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-all ${getSegmentColorClasses(template.color)} hover:opacity-90`}
+                    title={template.description}
+                  >
+                    {template.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Compact Custom Form */}
+            <div className="p-2 bg-gray-700/30 rounded border border-gray-600 mb-2">
+              <div className="grid grid-cols-5 gap-2 mb-2">
+                <input
+                  type="text"
+                  value={newSegment.name}
+                  onChange={(e) => setNewSegment(prev => ({...prev, name: e.target.value}))}
+                  className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                  placeholder="Name"
+                />
+                <input
+                  type="number"
+                  value={newSegment.startTime}
+                  onChange={(e) => setNewSegment(prev => ({...prev, startTime: parseInt(e.target.value) || 0}))}
+                  className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                  placeholder="Start"
+                  min="0"
+                  max={duration}
+                />
+                <input
+                  type="number"
+                  value={newSegment.endTime}
+                  onChange={(e) => setNewSegment(prev => ({...prev, endTime: parseInt(e.target.value) || 0}))}
+                  className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                  placeholder="End"
+                  min={newSegment.startTime + 1}
+                  max={duration}
+                />
+                <select
+                  value={newSegment.color}
+                  onChange={(e) => setNewSegment(prev => ({...prev, color: e.target.value}))}
+                  className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                >
+                  <option value="blue">Blue</option>
+                  <option value="green">Green</option>
+                  <option value="red">Red</option>
+                  <option value="yellow">Yellow</option>
+                  <option value="purple">Purple</option>
+                  <option value="gray">Gray</option>
+                  <option value="orange">Orange</option>
+                  <option value="indigo">Indigo</option>
+                </select>
+                {editingSegment ? (
+                  <button
+                    onClick={handleSaveSegment}
+                    disabled={!newSegment.name || newSegment.startTime >= newSegment.endTime}
+                    className="px-2 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded text-xs transition-colors"
+                  >
+                    Save
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAddSegment}
+                    disabled={!newSegment.name || newSegment.startTime >= newSegment.endTime}
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded text-xs transition-colors"
+                  >
+                    Add
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                value={newSegment.description}
+                onChange={(e) => setNewSegment(prev => ({...prev, description: e.target.value}))}
+                className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-xs"
+                placeholder="Description (optional)"
+              />
+            </div>
+
+            {/* Compact Segments List */}
+            {timelineSegments.length > 0 && (
+              <div className="max-h-24 overflow-y-auto">
+                <div className="space-y-1">
+                  {timelineSegments.map((segment) => {
+                    const isActive = currentTime >= segment.startTime && currentTime <= segment.endTime;
+                    return (
+                      <div
+                        key={segment.id}
+                        className={`flex items-center justify-between px-2 py-1 rounded text-xs transition-all ${
+                          isActive ? 'bg-gray-700/50 border-blue-500' : 'bg-gray-800/30 hover:bg-gray-700/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className={`w-2 h-2 rounded-full ${getSegmentColorClasses(segment.color).split(' ')[0]}`}></div>
+                          <span className="text-white font-medium truncate">{segment.name}</span>
+                          <span className="text-gray-400 text-xs">
+                            {formatTime(segment.startTime)}-{formatTime(segment.endTime)}
+                          </span>
+                          {isActive && <span className="px-1 bg-blue-600 text-blue-100 text-xs rounded">●</span>}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleNavigateToSegment(segment)}
+                            className="p-1 text-gray-400 hover:text-blue-400 rounded transition-colors"
+                            title="Go"
+                          >
+                            <Play size={10} />
+                          </button>
+                          <button
+                            onClick={() => handleEditSegment(segment)}
+                            className="p-1 text-gray-400 hover:text-yellow-400 rounded transition-colors"
+                            title="Edit"
+                          >
+                            <Edit size={10} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSegment(segment.id)}
+                            className="p-1 text-gray-400 hover:text-red-400 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Compact Timeline Container */}
+        <div className="relative pt-2">
           {timelineMode === 'single' ? (
-            // Single Timeline (existing implementation)
+            // Compact Single Timeline
             <>
-              {/* Timeline Background with gradient */}
+              {/* Compact Timeline Background */}
               <div 
                 ref={timelineRef}
-                className="relative h-16 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded-xl shadow-inner border border-gray-600 cursor-pointer transition-all duration-200"
+                className={`relative h-8 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded-lg shadow-inner border border-gray-600 transition-all duration-200 ${
+                  zoomLevel > 1 && !isDragging && !isPanning ? 'cursor-grab' : 'cursor-pointer'
+                } ${isPanning ? 'cursor-grabbing' : ''}`}
                 onClick={handleTimelineClick}
                 onMouseDown={handleMouseDown}
                 onMouseMove={(e) => {
                   handleTimelineDrag(e);
                   // Calculate hover time
-                  if (timelineRef.current && duration > 0) {
-                    const rect = timelineRef.current.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const time = (clickX / rect.width) * duration;
+                  if (duration > 0) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const time = timelinePositionToTime(e.clientX, rect);
                     const clampedTime = Math.max(0, Math.min(time, duration));
                     setHoverTime(clampedTime);
                   }
@@ -640,44 +1515,48 @@ const CustomVideoPlayer = ({
                   setIsTimelineHovered(false);
                   setHoverTime(null);
                 }}
-                title="Click to seek to this time"
+                onWheel={handleTimelineWheel}
+                title={zoomLevel > 1 ? "Ctrl+scroll to zoom • Shift+drag to pan • Click to seek" : "Click to seek • Ctrl+scroll to zoom"}
               >
                 {/* Progress Bar with gradient */}
                 <div 
                   className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 via-blue-400 to-blue-500 transition-all duration-200 ease-out rounded-l-xl"
-                  style={{ width: `${(currentTime / duration) * 100}%` }}
+                  style={{ width: `${timeToTimelinePosition(currentTime)}%` }}
                 >
                   <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                 </div>
 
+                {/* Timeline Segments */}
+                {renderTimelineSegments()}
+
                 {/* Comment Annotations */}
                 {renderAnnotations()}
 
-                {/* Enhanced Playhead */}
+                {/* Compact Playhead */}
                 <div
-                  className="absolute top-0 w-1 h-full bg-red-500 z-40 pointer-events-none transition-all duration-200 ease-out shadow-lg"
-                  style={{ left: `${(currentTime / duration) * 100}%` }}
+                  className="absolute top-0 w-0.5 h-full bg-red-500 z-40 pointer-events-none transition-all duration-200 ease-out shadow-sm"
+                  style={{ left: `${timeToTimelinePosition(currentTime)}%` }}
                 >
-                  {/* Playhead handle */}
-                  <div className="absolute -top-2 -left-2 w-5 h-5 bg-red-500 rounded-full shadow-lg border-2 border-white">
+                  {/* Compact playhead handle */}
+                  <div className="absolute -top-1 -left-1.5 w-3 h-3 bg-red-500 rounded-full shadow-sm border border-white">
                     <div className="absolute inset-0 bg-red-400 rounded-full animate-ping opacity-75"></div>
                   </div>
                   
-                  {/* Current time tooltip */}
-                  <div className="absolute -top-12 -left-8 bg-gray-900/95 text-white px-3 py-1 rounded-lg text-xs font-mono whitespace-nowrap shadow-xl border border-gray-600">
+                  {/* Compact current time tooltip */}
+                  <div className="absolute -top-8 -left-6 bg-gray-900/95 text-white px-2 py-0.5 rounded text-xs font-mono whitespace-nowrap shadow-lg border border-gray-600">
                     {formatTime(currentTime)}
                     <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-l-transparent border-r-transparent border-t-gray-900/95"></div>
                   </div>
                 </div>
 
-                {/* Hover time indicator */}
+                {/* Compact hover time indicator */}
                 {isTimelineHovered && hoverTime !== null && (
                   <div 
                     className="absolute top-0 w-px h-full bg-white/70 z-50 pointer-events-none transition-opacity duration-200"
-                    style={{ left: `${(hoverTime / duration) * 100}%` }}
+                    style={{ left: `${timeToTimelinePosition(hoverTime)}%` }}
                   >
-                    {/* Hover time tooltip */}
-                    <div className="absolute -top-12 -left-8 bg-gray-900/95 text-white px-3 py-1 rounded-lg text-xs font-mono whitespace-nowrap shadow-xl border border-gray-600 z-50">
+                    {/* Compact hover time tooltip */}
+                    <div className="absolute -top-8 -left-6 bg-gray-900/95 text-white px-2 py-0.5 rounded text-xs font-mono whitespace-nowrap shadow-lg border border-gray-600 z-50">
                       {formatTime(hoverTime)}
                       <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-l-transparent border-r-transparent border-t-gray-900/95"></div>
                     </div>
@@ -691,15 +1570,39 @@ const CustomVideoPlayer = ({
           )}
         </div>
 
-        {/* Interactive Help Text */}
-        <div className="mt-3 text-xs text-gray-400 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <span>💡 Click timeline to seek • Hover annotations for details • Drag to scrub</span>
-          </div>
+        {/* Compact Active Segment Indicator */}
+        {(() => {
+          const activeSegment = getCurrentActiveSegment();
+          if (!activeSegment) return null;
+          
+          return (
+            <div className="mt-2 p-2 bg-gray-800/50 rounded border border-gray-600">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${getSegmentColorClasses(activeSegment.color).split(' ')[0]}`}></div>
+                  <span className="text-white font-medium">{activeSegment.name}</span>
+                  <span className="text-gray-400">
+                    ({formatTime(activeSegment.startTime)}-{formatTime(activeSegment.endTime)})
+                  </span>
+                </div>
+                <span className="text-gray-400">
+                  {Math.round(activeSegment.endTime - currentTime)}s left
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Compact Help Text */}
+        <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
+          <span>Click to seek • Hover for details • Ctrl+scroll to zoom</span>
           <div className="flex items-center gap-2">
-            <span>Showing {comments.length} annotation{comments.length !== 1 ? 's' : ''}</span>
-            {timelineMode === 'multi' && (
-              <span className="text-blue-400">• Multi-timeline view</span>
+            <span>{comments.length} annotations</span>
+            {timelineSegments.length > 0 && (
+              <span>• {timelineSegments.length} segments</span>
+            )}
+            {zoomLevel > 1 && (
+              <span>• {zoomLevel.toFixed(1)}x zoom</span>
             )}
           </div>
         </div>
@@ -708,4 +1611,4 @@ const CustomVideoPlayer = ({
   );
 };
 
-export default CustomVideoPlayer; 
+export default CustomVideoPlayer;

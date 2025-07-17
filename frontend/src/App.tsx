@@ -8,7 +8,6 @@ import { useEffect } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SessionDetail from './pages/SessionDetail';
-import EvaluationForm from './pages/EvaluationForm';
 import AuthRoute from './components/AuthRoute';
 import Guide from './pages/Guide';
 import Analytics from './pages/Analytics';
@@ -46,11 +45,6 @@ function App() {
 					<Route path="/session/:sessionName" element={
 						<AuthRoute>
 							<SessionDetail />
-						</AuthRoute>
-					} />
-					<Route path="/evaluate/:sessionName" element={
-						<AuthRoute>
-							<EvaluationForm />
 						</AuthRoute>
 					} />
 					<Route path="/guide" element={<Guide />} />

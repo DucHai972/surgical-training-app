@@ -252,5 +252,14 @@ website_route_rules = [
 whitelisted_methods = {
     "surgical_training.api.evaluation.add_evaluation": {
         "methods": ["POST"]
+    },
+    "surgical_training.api.session.get_sessions": {
+        "methods": ["GET"]
+    },
+    "surgical_training.api.session.get_session_details": {
+        "methods": ["GET"]
+    },
+    "surgical_training.api.comment.get_custom_templates": {
+        "methods": ["GET"]
     }
 }

@@ -8,16 +8,17 @@
         "session",
         "video_title",
         "timestamp",
+        "duration",
+        "comment_type",
         "comment_text",
         "created_at"
     ],
     "fields": [
         {
             "fieldname": "doctor",
-            "fieldtype": "Link",
+            "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Doctor",
-            "options": "Doctor",
             "reqd": 1
         },
         {
@@ -42,6 +43,21 @@
             "label": "Timestamp (seconds)",
             "precision": 2,
             "reqd": 1
+        },
+        {
+            "fieldname": "duration",
+            "fieldtype": "Int",
+            "default": "30",
+            "label": "Duration (seconds)",
+            "description": "How long this annotation spans on the timeline"
+        },
+        {
+            "fieldname": "comment_type",
+            "fieldtype": "Select",
+            "label": "Comment Type",
+            "options": "neutral\npositive\nwarning\ncritical",
+            "default": "neutral",
+            "description": "Category of this comment for visual display"
         },
         {
             "fieldname": "comment_text",

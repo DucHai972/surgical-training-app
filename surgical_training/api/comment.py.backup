@@ -3,7 +3,7 @@ from frappe import _
 from frappe.utils import cint, flt, now
 
 @frappe.whitelist()
-def add_comment(session, video_title, timestamp, comment_text, duration=None, comment_type=None):
+def add_comment(session, video_title, timestamp, comment_text):
     """Add a new comment to a video"""
     if not frappe.session.user:
         return {"message": "Error", "error": "User not authenticated"}
@@ -77,31 +77,13 @@ def add_comment(session, video_title, timestamp, comment_text, duration=None, co
         if timestamp < 0:
             return {"message": "Error", "error": "Timestamp must be a positive number"}
         
-        # Process duration parameter
-        if duration is not None:
-            duration = cint(duration)
-            # Validate duration is reasonable (between 1 second and 10 minutes)
-            if duration < 1 or duration > 600:
-                duration = 30  # Default fallback
-        else:
-            duration = 30  # Default duration
-        
-        # Process comment_type parameter
-        valid_types = ["neutral", "positive", "warning", "critical"]
-        if comment_type and comment_type in valid_types:
-            final_comment_type = comment_type
-        else:
-            final_comment_type = "neutral"  # Default type
-        
         # Create a new comment
-        frappe.logger().info(f"Creating comment with doctor: {doctor_name}, duration: {duration}, type: {final_comment_type}")
+        frappe.logger().info(f"Creating comment with doctor: {doctor_name}")
         comment = frappe.new_doc("Video Comment")
         comment.doctor = doctor_name
         comment.session = session
         comment.video_title = video_title
         comment.timestamp = timestamp
-        comment.duration = duration
-        comment.comment_type = final_comment_type
         comment.comment_text = comment_text
         comment.created_at = now()
         comment.insert(ignore_permissions=True)
@@ -142,8 +124,6 @@ def add_comment(session, video_title, timestamp, comment_text, duration=None, co
                 "session": comment.session,
                 "video_title": comment.video_title,
                 "timestamp": comment.timestamp,
-                "duration": comment.duration,
-                "comment_type": comment.comment_type,
                 "comment_text": comment.comment_text,
                 "created_at": created_at
             }
@@ -176,7 +156,7 @@ def get_comments_by_video(session, video_title):
                     "session": session,
                     "video_title": video_title
                 },
-                fields=["name", "doctor", "comment_text", "timestamp", "duration", "comment_type", "creation", "modified"],
+                fields=["name", "doctor", "comment_text", "timestamp", "creation", "modified"],
                 order_by="timestamp asc"
             )
         else:
@@ -193,15 +173,15 @@ def get_comments_by_video(session, video_title):
             possible_doctor_names.append(f"doctor-{user_email}")
             frappe.logger().info(f"Possible doctor names for user: {possible_doctor_names}")
             comments = frappe.get_all(
-            "Video Comment",
+                "Video Comment",
                 filters={
                     "session": session,
                     "video_title": video_title,
                     "doctor": ["in", possible_doctor_names]
                 },
-                fields=["name", "doctor", "comment_text", "timestamp", "duration", "comment_type", "creation", "modified"],
-            order_by="timestamp asc"
-        )
+                fields=["name", "doctor", "comment_text", "timestamp", "creation", "modified"],
+                order_by="timestamp asc"
+            )
         
         # Process comments to add doctor names
         processed_comments = []
@@ -232,15 +212,13 @@ def get_comments_by_video(session, video_title):
                             doctor_name += f" {doctor_doc.last_name}"
                     except Exception:
                         doctor_name = comment.doctor
-                    frappe.logger().info(f"  - Processed comment {comment.name}: display_name={doctor_name}")
-                    processed_comments.append({
+                frappe.logger().info(f"  - Processed comment {comment.name}: display_name={doctor_name}")
+                processed_comments.append({
                     "name": comment.name,
                     "doctor": comment.doctor,
                     "doctor_name": doctor_name,
                     "comment_text": comment.comment_text,
                     "timestamp": comment.timestamp,
-                    "duration": getattr(comment, 'duration', 30),  # Default to 30 for existing comments
-                    "comment_type": getattr(comment, 'comment_type', 'neutral'),  # Default to neutral for existing comments
                     "creation": comment.creation,
                     "modified": comment.modified
                 })
@@ -334,7 +312,7 @@ def delete_comment(comment_name):
         return {"message": "Error", "error": str(e)}
 
 @frappe.whitelist()
-def update_comment(comment_name, comment_text=None, duration=None, comment_type=None):
+def update_comment(comment_name, comment_text):
     """Update a comment with personalized permissions"""
     try:
         # Check if user is authenticated
@@ -353,22 +331,7 @@ def update_comment(comment_name, comment_text=None, duration=None, comment_type=
         if is_admin:
             # Admin can edit ANY comment
             frappe.logger().info("Admin user - permission granted for any comment")
-            
-            # Update fields if provided
-            if comment_text is not None:
-                comment.comment_text = comment_text
-            if duration is not None:
-                comment.duration = cint(duration)
-                # Validate duration is reasonable (between 1 second and 10 minutes)
-                if comment.duration < 1 or comment.duration > 600:
-                    comment.duration = 30  # Default fallback
-            if comment_type is not None:
-                valid_types = ["neutral", "positive", "warning", "critical"]
-                if comment_type in valid_types:
-                    comment.comment_type = comment_type
-                else:
-                    comment.comment_type = "neutral"  # Default fallback
-                    
+            comment.comment_text = comment_text
             comment.save()
             frappe.db.commit()
             
@@ -377,9 +340,7 @@ def update_comment(comment_name, comment_text=None, duration=None, comment_type=
                 "data": {
                     "updated": True,
                     "comment_name": comment_name,
-                    "comment_text": comment.comment_text,
-                    "duration": comment.duration,
-                    "comment_type": comment.comment_type
+                    "comment_text": comment_text
                 }
             }
         else:
@@ -407,21 +368,7 @@ def update_comment(comment_name, comment_text=None, duration=None, comment_type=
             frappe.logger().info(f"Update permission check: possible_doctors={possible_doctor_names}, comment.doctor={comment.doctor}, is_own={is_own_comment}")
             
             if is_own_comment:
-                # Update fields if provided
-                if comment_text is not None:
-                    comment.comment_text = comment_text
-                if duration is not None:
-                    comment.duration = cint(duration)
-                    # Validate duration is reasonable (between 1 second and 10 minutes)
-                    if comment.duration < 1 or comment.duration > 600:
-                        comment.duration = 30  # Default fallback
-                if comment_type is not None:
-                    valid_types = ["neutral", "positive", "warning", "critical"]
-                    if comment_type in valid_types:
-                        comment.comment_type = comment_type
-                    else:
-                        comment.comment_type = "neutral"  # Default fallback
-                        
+                comment.comment_text = comment_text
                 comment.save()
                 frappe.db.commit()
                 
@@ -430,9 +377,7 @@ def update_comment(comment_name, comment_text=None, duration=None, comment_type=
                     "data": {
                         "updated": True,
                         "comment_name": comment_name,
-                        "comment_text": comment.comment_text,
-                        "duration": comment.duration,
-                        "comment_type": comment.comment_type
+                        "comment_text": comment_text
                     }
                 }
             else:
@@ -575,7 +520,7 @@ def can_delete_comment(comment_name):
         return {"message": "Error", "error": "Comment not found"}
     except Exception as e:
         frappe.log_error(f"Error checking delete permission: {str(e)}")
-        return {"message": "Error", "error": str(e)} 
+        return {"message": "Error", "error": str(e)}
 
 # Custom Template Management
 
@@ -732,4 +677,4 @@ def test_doctor_detection():
             }
         }
     except Exception as e:
-        return {"message": "Error", "error": str(e)}
+        return {"message": "Error", "error": str(e)} 
