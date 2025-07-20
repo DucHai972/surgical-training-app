@@ -84,6 +84,15 @@ interface VideoPlayerState {
   newComment: string;
 }
 
+interface ActiveLabel {
+  id: string;
+  videoTitle: string;
+  startTime: number;
+  comment: string;
+  type: string;
+  createdAt: number;
+}
+
 interface SessionInfo {
     name: string;
     title: string;
@@ -148,8 +157,8 @@ const SessionDetail = () => {
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showFloatingComment, setShowFloatingComment] = useState(false);
   const [floatingCommentTimestamp, setFloatingCommentTimestamp] = useState(0);
-  const [annotationDuration, setAnnotationDuration] = useState(30); // Duration in seconds
-  const [annotationCommentType, setAnnotationCommentType] = useState<'auto' | 'positive' | 'warning' | 'critical' | 'neutral'>('auto');
+  const [annotationDuration, setAnnotationDuration] = useState(60); // Duration in seconds - default to 1 minute
+  const [annotationCommentType, setAnnotationCommentType] = useState<'auto' | 'identification' | 'situation' | 'background' | 'assessment' | 'recommendation' | 'general'>('identification');
   const [commentToDelete, setCommentToDelete] = useState<{name: string, text: string} | null>(null);
   const [editingComment, setEditingComment] = useState<{name: string, text: string} | null>(null);
   const [editCommentText, setEditCommentText] = useState('');
@@ -176,6 +185,8 @@ const SessionDetail = () => {
     comment: ''
   });
   const [evaluationExpanded, setEvaluationExpanded] = useState<{[key: string]: boolean}>({});
+  const [activeLabels, setActiveLabels] = useState<ActiveLabel[]>([]);
+  const [labelMode, setLabelMode] = useState<'duration' | 'start_end'>('duration'); // Default to duration mode
   const videoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
 
   // Get current user info
@@ -506,15 +517,42 @@ const SessionDetail = () => {
       
       switch (e.key.toLowerCase()) {
         case 'c':
-          // Don't show comment popup if Ctrl+C is pressed (user wants to copy)
+          // Don't trigger if Ctrl+C is pressed (user wants to copy)
           if (e.ctrlKey || e.metaKey) return;
           
           e.preventDefault();
-          // Toggle comment popup - show if hidden, hide if shown
-          if (showFloatingComment) {
-            setShowFloatingComment(false);
-          } else {
-            handleFloatingComment();
+          // Focus on the comment textarea
+          const textarea = document.querySelector('textarea[placeholder*="Describe what you observe"]') as HTMLTextAreaElement;
+          if (textarea) {
+            textarea.focus();
+          }
+          break;
+        case 'e':
+          // End the most recent active label for current video
+          if (currentVideo && labelMode === 'start_end') {
+            e.preventDefault();
+            const activeLabelsForVideo = getActiveLabelsForVideo(currentVideo.title);
+            if (activeLabelsForVideo.length > 0) {
+              const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
+              handleEndLabel(mostRecentLabel.id);
+            }
+          }
+          break;
+        case 'enter':
+          // Submit comment when Enter is pressed (with Ctrl/Cmd)
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (currentVideo) {
+              const comment = videoPlayerStates.get(currentVideo.title)?.newComment.trim();
+              if (comment) {
+                if (labelMode === 'start_end') {
+                  handleStartLabel(currentVideo.title, comment, annotationCommentType);
+                } else {
+                  const currentTime = videoPlayerStates.get(currentVideo.title)?.currentTime || 0;
+                  handleAddComment(currentVideo.title, currentTime, annotationDuration, annotationCommentType);
+                }
+              }
+            }
           }
           break;
         case ' ':
@@ -527,15 +565,17 @@ const SessionDetail = () => {
           }
           break;
         case 'escape':
-          setShowQuickComment(false);
-          setShowFloatingComment(false);
+          // Clear comment input
+          if (currentVideo) {
+            handleCommentChange(currentVideo.title, '');
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [currentVideo, videoPlayerStates, showFloatingComment]);
+  }, [currentVideo, videoPlayerStates, labelMode, activeLabels, annotationCommentType, annotationDuration]);
 
   useEffect(() => {
     if (apiResponse && typeof apiResponse === 'object' && apiResponse.message) {
@@ -547,20 +587,26 @@ const SessionDetail = () => {
         setSessionData(responseData.data);
         setComments(Array.isArray(responseData.data.comments) ? responseData.data.comments : []);
         
-        // Set first video as current if available
+        // Set first video as current if available, but preserve current video if it exists
         if (responseData.data.videos && Array.isArray(responseData.data.videos) && responseData.data.videos.length > 0) {
-          setCurrentVideo(responseData.data.videos[0]);
+          // Only set to first video if no current video is set, or if current video is not in the new data
+          if (!currentVideo || !responseData.data.videos.find((v: Video) => v.title === currentVideo.title)) {
+            setCurrentVideo(responseData.data.videos[0]);
+          }
           
-          // Initialize player states for all videos
-          const initialStates = new Map<string, VideoPlayerState>();
-          responseData.data.videos.forEach((video: Video) => {
-            initialStates.set(video.title, {
-              isPlaying: false,
-              currentTime: 0,
-              newComment: ''
+          // Initialize player states for all videos, preserving existing states
+          setVideoPlayerStates(prevStates => {
+            const newStates = new Map<string, VideoPlayerState>();
+            responseData.data.videos.forEach((video: Video) => {
+              const existingState = prevStates.get(video.title);
+              newStates.set(video.title, {
+                isPlaying: existingState?.isPlaying || false,
+                currentTime: existingState?.currentTime || 0,
+                newComment: existingState?.newComment || ''
+              });
             });
+            return newStates;
           });
-          setVideoPlayerStates(initialStates);
         }
       } else {
         console.error('Unexpected API response format:', responseData);
@@ -703,14 +749,99 @@ const SessionDetail = () => {
       const videoState = videoPlayerStates.get(currentVideo.title);
       if (videoState) {
         setFloatingCommentTimestamp(timestamp || videoState.currentTime);
-        // Reset annotation settings to defaults
-        setAnnotationDuration(30);
-        setAnnotationCommentType('auto');
+        // Don't reset annotation settings - preserve user preferences
         setShowFloatingComment(true);
         // Pause video for commenting
         handlePlayPause(currentVideo.title, false);
       }
     }
+  };
+
+  // New label system functions
+  const handleStartLabel = (videoTitle: string, comment: string, type: string = 'positive') => {
+    if (!currentVideo) return;
+    
+    const videoState = videoPlayerStates.get(videoTitle);
+    if (!videoState) return;
+
+    const newLabel: ActiveLabel = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      videoTitle,
+      startTime: videoState.currentTime,
+      comment,
+      type,
+      createdAt: Date.now()
+    };
+
+    setActiveLabels(prev => [...prev, newLabel]);
+    toast.success(`Label started at ${formatTime(videoState.currentTime)}`);
+    
+    // Clear the comment input
+    handleCommentChange(videoTitle, '');
+  };
+
+  const handleEndLabel = async (labelId: string) => {
+    if (!currentVideo) return;
+    
+    const videoState = videoPlayerStates.get(currentVideo.title);
+    if (!videoState) return;
+
+    const activeLabel = activeLabels.find(label => label.id === labelId);
+    if (!activeLabel) return;
+
+    const endTime = videoState.currentTime;
+    const duration = endTime - activeLabel.startTime;
+
+    if (duration <= 0) {
+      toast.error('End time must be after start time');
+      return;
+    }
+
+    try {
+      // Create the comment with calculated duration
+      const commentData = {
+        session: sessionName,
+        video_title: activeLabel.videoTitle,
+        timestamp: activeLabel.startTime,
+        comment_text: activeLabel.comment,
+        duration: duration,
+        comment_type: activeLabel.type
+      };
+
+      const response = await addComment(commentData);
+      
+      if (response && response.message) {
+        const responseData = response.message;
+        
+        if (responseData.message === 'Success') {
+          toast.success(`Label completed: ${formatTime(duration)} duration`);
+          
+          // Remove the active label
+          setActiveLabels(prev => prev.filter(label => label.id !== labelId));
+          
+          // Refresh comments
+          await refreshSession();
+        } else if (responseData.error) {
+          toast.error(`Error: ${responseData.error}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error completing label:', error);
+      toast.error('Failed to complete label');
+    }
+  };
+
+  const handleCancelLabel = (labelId: string) => {
+    setActiveLabels(prev => prev.filter(label => label.id !== labelId));
+    toast('Label cancelled');
+  };
+
+  const getActiveLabelsForVideo = (videoTitle: string) => {
+    return activeLabels.filter(label => label.videoTitle === videoTitle);
+  };
+
+  const hasActiveLabels = (videoTitle: string) => {
+    return activeLabels.some(label => label.videoTitle === videoTitle);
   };
 
   const handleAddComment = async (videoTitle: string, customTimestamp?: number, customDuration?: number, customCommentType?: string) => {
@@ -1511,16 +1642,13 @@ const SessionDetail = () => {
     const videoComments = getVideoComments(video.title);
     
     return (
-      <Card className="bg-white border border-gray-200 shadow-lg overflow-hidden relative">
-        <CardHeader className="pb-3">
+      <div className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden relative">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-200">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-          <CardTitle className="text-xl text-gray-900">
-            {video.title}
-          </CardTitle>
-          <CardDescription className="text-gray-600">
-            {video.description}
-          </CardDescription>
+              <h2 className="text-xl font-semibold text-gray-900">{video.title}</h2>
+              <p className="text-gray-600 mt-1">{video.description}</p>
             </div>
             
             {/* Sync Button - Only show in multi-video modes */}
@@ -1528,341 +1656,546 @@ const SessionDetail = () => {
               <Button
                 onClick={() => syncVideosToReference(video)}
                 variant="outline"
-                size="lg"
-                className="group flex items-center gap-3 transition-all duration-300 transform hover:scale-105 rounded-xl bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:border-orange-300 shadow-md hover:shadow-lg ml-4 px-6 py-4 min-h-[56px]"
+                size="sm"
+                className="group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:border-orange-300 shadow-md hover:shadow-lg ml-4 px-4 py-2"
                 title={`Sync all other videos to this video's timeline`}
               >
-                <Zap size={18} className="group-hover:scale-110 transition-transform duration-300" />
-                <span className="text-base font-medium">Sync</span>
+                <Zap size={16} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-sm font-medium">Sync</span>
               </Button>
             )}
           </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-6">
-          {/* Enhanced Video Player with Floating Comment Integration */}
-          <div className="relative space-y-4">
-            <CustomVideoPlayer
-              src={video.video_file && video.video_file.trim() 
-                ? video.video_file  // Use the path as-is from the backend
-                : '/files/placeholder.mp4'  // fallback for missing video
-              }
-              title={video.title}
-              comments={videoComments.map(comment => ({
-                ...comment,
-                isEvaluation: isEvaluationComment(comment)
-              }))}
-              isPlaying={videoState.isPlaying}
-              currentTime={videoState.currentTime}
-              onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-              onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-              onSeek={(time) => handleSeek(video.title, time)}
-
-          />
-            
-            {/* Floating Quick Comment Bar */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 shadow-lg">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                    <MessageSquare size={20} className="text-white" />
         </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Quick Comment</h3>
-                    <p className="text-base text-gray-600">
-                      Press 'C' to add annotation at current moment
-                    </p>
-          </div>
+
+        {/* Main Content - Side by Side Layout */}
+        <div className="flex h-[calc(100vh-160px)]">
+          {/* Left Side - Video Player */}
+          <div className="flex-1 flex flex-col bg-gray-50">
+            {/* Video Player Container */}
+            <div className="flex-1 p-4">
+              <div className="relative h-full">
+                <CustomVideoPlayer
+                  src={video.video_file && video.video_file.trim() 
+                    ? video.video_file  // Use the path as-is from the backend
+                    : '/files/placeholder.mp4'  // fallback for missing video
+                  }
+                  title={video.title}
+                  comments={videoComments.map(comment => ({
+                    ...comment,
+                    isEvaluation: isEvaluationComment(comment)
+                  }))}
+                  isPlaying={videoState.isPlaying}
+                  currentTime={videoState.currentTime}
+                  onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
+                  onPlayPause={(playing) => handlePlayPause(video.title, playing)}
+                  onSeek={(time) => handleSeek(video.title, time)}
+                />
+              </div>
             </div>
-                <div className="flex items-center gap-3">
-                  <div className="bg-white px-4 py-3 rounded-full border border-gray-200">
-                    <span className="text-base font-mono text-gray-700">
-                      {formatTime(videoState.currentTime)}
-                </span>
+
+            {/* Active Labels Indicator */}
+            {getActiveLabelsForVideo(video.title).length > 0 && (
+              <div className="mx-4 mb-4 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-6 w-6 rounded-full bg-yellow-500 flex items-center justify-center">
+                      <Target size={12} className="text-white" />
                     </div>
-                        <Button
-                    onClick={() => handleFloatingComment()}
-                    size="lg"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 min-h-[56px]"
-                  >
-                    <MessageSquare size={18} className="mr-2" />
-                    Comment
-                        </Button>
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">Active Labels</h3>
+                      <p className="text-xs text-gray-600">Labels waiting for end time</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-medium text-gray-700">
+                      {getActiveLabelsForVideo(video.title).length} active
+                    </span>
+                  </div>
                 </div>
+                <div className="space-y-1">
+                  {getActiveLabelsForVideo(video.title).map((label) => (
+                    <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border border-yellow-200">
+                      <div className="flex-1">
+                        <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                        <div className="text-xs text-gray-500 flex items-center gap-1">
+                          <Clock size={10} />
+                          Started at {formatTime(label.startTime)} • 
+                          Duration: {formatTime(videoState.currentTime - label.startTime)}
+                        </div>
                       </div>
-                      
-              {/* Quick Action Buttons */}
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-base text-gray-600 mr-2">Quick templates:</span>
-                          <Button
-                  onClick={() => {
-                    handleCommentChange(video.title, '👍 Good technique');
-                    handleFloatingComment();
-                  }}
-                            variant="outline"
-                  size="lg"
-                  className="text-green-700 border-green-200 hover:bg-green-50 px-6 py-4 text-base min-h-[56px] rounded-xl"
-                          >
-                  👍 Good
-                          </Button>
-                          <Button
-                  onClick={() => {
-                    handleCommentChange(video.title, '⚠️ Needs attention');
-                    handleFloatingComment();
-                  }}
-                            variant="outline"
-                  size="lg"
-                  className="text-yellow-700 border-yellow-200 hover:bg-yellow-50 px-6 py-4 text-base min-h-[56px] rounded-xl"
-                          >
-                  ⚠️ Attention
-                          </Button>
+                      <div className="flex items-center gap-1 ml-2">
                         <Button
-                  onClick={() => {
-                    handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.');
-                    handleFloatingComment();
-                  }}
+                          onClick={() => handleEndLabel(label.id)}
                           variant="outline"
-                  size="lg"
-                  className="text-red-700 border-red-200 hover:bg-red-50 px-6 py-4 text-base min-h-[56px] rounded-xl"
+                          size="sm"
+                          className="text-green-700 border-green-200 hover:bg-green-50 px-2 py-1 text-xs h-auto"
                         >
-                  ❌ Critical
+                          End
                         </Button>
                         <Button
+                          onClick={() => handleCancelLabel(label.id)}
+                          variant="outline"
+                          size="sm"
+                          className="text-red-700 border-red-200 hover:bg-red-50 px-2 py-1 text-xs h-auto"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Quick Action Bar */}
+            <div className="mx-4 mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center">
+                    <MessageSquare size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Quick Comment</h3>
+                    <p className="text-xs text-gray-600">
+                      {labelMode === 'start_end' 
+                        ? "Press 'C' to focus comment • Press 'E' to end latest label • Ctrl+Enter to start label"
+                        : "Press 'C' to focus comment • Ctrl+Enter to add comment"
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="bg-white px-3 py-1 rounded-full border border-gray-200">
+                    <span className="text-sm font-mono text-gray-700">
+                      {formatTime(videoState.currentTime)}
+                    </span>
+                  </div>
+                  <Button
+                    onClick={() => handleFloatingComment()}
+                    size="sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg shadow-sm hover:shadow-md transition-all duration-300"
+                  >
+                    <MessageSquare size={14} className="mr-1" />
+                    Comment
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Quick Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-600 mr-1">Quick:</span>
+                <Button
+                  onClick={() => {
+                    if (labelMode === 'start_end') {
+                      handleStartLabel(video.title, '👍 Good technique', 'positive');
+                    } else {
+                      handleCommentChange(video.title, '👍 Good technique');
+                      handleFloatingComment();
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-green-700 border-green-200 hover:bg-green-50 px-3 py-1 text-xs rounded-lg"
+                >
+                  {labelMode === 'start_end' ? '🎯 Start Good' : '👍 Good'}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (labelMode === 'start_end') {
+                      handleStartLabel(video.title, '⚠️ Needs attention', 'warning');
+                    } else {
+                      handleCommentChange(video.title, '⚠️ Needs attention');
+                      handleFloatingComment();
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-yellow-700 border-yellow-200 hover:bg-yellow-50 px-3 py-1 text-xs rounded-lg"
+                >
+                  {labelMode === 'start_end' ? '🎯 Start Attention' : '⚠️ Attention'}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (labelMode === 'start_end') {
+                      handleStartLabel(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.', 'critical');
+                    } else {
+                      handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.');
+                      handleFloatingComment();
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-red-700 border-red-200 hover:bg-red-50 px-3 py-1 text-xs rounded-lg"
+                >
+                  {labelMode === 'start_end' ? '🎯 Start Critical' : '❌ Critical'}
+                </Button>
+                <Button
                   onClick={() => {
                     handleCommentChange(video.title, '');
                     handleFloatingComment();
                   }}
-                          variant="outline"
-                  size="lg"
-                  className="text-blue-700 border-blue-200 hover:bg-blue-50 px-6 py-4 text-base min-h-[56px] rounded-xl"
-                        >
-                  ✏️ Custom
-                        </Button>
-              </div>
-                      </div>
-                    </div>
-                    
-          
-          {/* Compact Comment History Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <MessageSquare size={18} className="text-blue-500" />
-                Comment History
-                <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-sm font-medium">
-                  {videoComments.length}
-                </span>
-              </h3>
-                <Button
-                onClick={() => handleFloatingComment()}
-                variant="outline"
-                size="sm"
-                className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                  variant="outline"
+                  size="sm"
+                  className="text-blue-700 border-blue-200 hover:bg-blue-50 px-3 py-1 text-xs rounded-lg"
                 >
-                <MessageSquare size={14} className="mr-1" />
-                Add Comment
+                  ✏️ Custom
                 </Button>
+              </div>
             </div>
           </div>
-          
-          {/* Comments Display */}
-          <div className="space-y-4">
-                          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <MessageSquare size={18} className="text-blue-500" />
-              Comments 
-                <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-sm font-medium">
-                {videoComments.length}
-              </span>
-            </h3>
-            
-            {videoComments.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-200">
-                <MessageSquare size={48} className="mx-auto text-gray-300 mb-4" />
-                <h4 className="text-lg font-medium text-gray-900 mb-2">No Comments Yet</h4>
-                <p className="text-gray-500">Be the first to share your thoughts on this video.</p>
+
+          {/* Right Side - Comments Section */}
+          <div className="w-96 border-l border-gray-200 bg-white flex flex-col">
+            {/* Comments Header */}
+            <div className="p-4 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <MessageSquare size={18} className="text-blue-500" />
+                  Comments
+                  <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-sm font-medium">
+                    {videoComments.length}
+                  </span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="bg-white px-3 py-1 rounded-full border border-gray-200">
+                    <span className="text-sm font-mono text-gray-700">
+                      {formatTime(videoState.currentTime)}
+                    </span>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar border border-gray-200 rounded-xl bg-gray-50/50 p-4">
-                {videoComments.map((comment, index) => {
+            </div>
+
+            {/* Comment Input Section */}
+            <div className="p-3 border-b border-gray-200 bg-gray-50">
+              {/* Mode Selector */}
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Labeling Mode
+                </label>
+                <div className="flex space-x-1 bg-white p-1 rounded-md border border-gray-200">
+                  <button
+                    onClick={() => setLabelMode('start_end')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-sm font-medium transition-all duration-200 text-xs ${
+                      labelMode === 'start_end'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    🎯 Start/End
+                  </button>
+                  <button
+                    onClick={() => setLabelMode('duration')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-sm font-medium transition-all duration-200 text-xs ${
+                      labelMode === 'duration'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    ⏱️ Duration
+                  </button>
+                </div>
+              </div>
+
+              {/* Settings Row */}
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                {/* Duration (only show in duration mode) */}
+                {labelMode === 'duration' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Duration
+                    </label>
+                    <select
+                      value={annotationDuration}
+                      onChange={(e) => setAnnotationDuration(parseInt(e.target.value))}
+                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
+                    >
+                      <option value={10}>10s</option>
+                      <option value={15}>15s</option>
+                      <option value={30}>30s</option>
+                      <option value={60}>1min</option>
+                      <option value={120}>2min</option>
+                      <option value={300}>5min</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Type */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    ISBAR Evaluation
+                  </label>
+                  <select
+                    value={annotationCommentType}
+                    onChange={(e) => setAnnotationCommentType(e.target.value as any)}
+                    className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
+                  >
+                    <option value="identification">🏥 Identification</option>
+                    <option value="situation">📊 Situation</option>
+                    <option value="background">📋 Background</option>
+                    <option value="assessment">🔍 Assessment</option>
+                    <option value="recommendation">💡 Recommendation</option>
+                    <option value="general">💬 General</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Comment Input */}
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Comment
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 transition-all duration-300 resize-none"
+                  placeholder="Describe what you observe at this moment..."
+                  value={videoPlayerStates.get(video.title)?.newComment || ''}
+                  onChange={(e) => handleCommentChange(video.title, e.target.value)}
+                />
+                <div className="text-xs text-gray-400 mt-1">
+                  {(videoPlayerStates.get(video.title)?.newComment || '').length}/500
+                </div>
+              </div>
+
+              {/* Quick Templates */}
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Quick Templates
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated. Good hand positioning and instrument control.')}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-green-700 border-green-200 hover:bg-green-50 rounded-md text-xs"
+                  >
+                    👍 Positive
+                  </Button>
+                  <Button
+                    onClick={() => handleCommentChange(video.title, '⚠️ Attention needed: Consider adjusting approach for better safety and precision.')}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-yellow-700 border-yellow-200 hover:bg-yellow-50 rounded-md text-xs"
+                  >
+                    ⚠️ Attention
+                  </Button>
+                  <Button
+                    onClick={() => handleCommentChange(video.title, '🎯 Key learning moment: This demonstrates proper technique for this procedure.')}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-blue-700 border-blue-200 hover:bg-blue-50 rounded-md text-xs"
+                  >
+                    🎯 Teaching
+                  </Button>
+                  <Button
+                    onClick={() => handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.')}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-red-700 border-red-200 hover:bg-red-50 rounded-md text-xs"
+                  >
+                    ❌ Critical
+                  </Button>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {labelMode === 'start_end' ? (
+                  <Button
+                    onClick={() => {
+                      const comment = videoPlayerStates.get(video.title)?.newComment.trim();
+                      if (comment) {
+                        handleStartLabel(video.title, comment, annotationCommentType);
+                      }
+                    }}
+                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
+                    size="sm"
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Target size={14} className="mr-1" />
+                    Start Label
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
+                      handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
+                    }}
+                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
+                    size="sm"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Send size={14} className="mr-1" />
+                    Add Comment
+                  </Button>
+                )}
+                <Button
+                  onClick={() => handleCommentChange(video.title, '')}
+                  variant="outline"
+                  size="sm"
+                  className="px-3"
+                >
+                  Clear
+                </Button>
+              </div>
+
+              {/* Active Labels Display */}
+              {labelMode === 'start_end' && getActiveLabelsForVideo(video.title).length > 0 && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs font-medium text-blue-800 mb-2">Active Labels:</div>
+                  <div className="space-y-2">
+                    {getActiveLabelsForVideo(video.title).map((label) => (
+                      <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                        <div className="flex-1">
+                          <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                          <div className="text-xs text-gray-500">Started at {formatTime(label.startTime)}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            onClick={() => handleEndLabel(label.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-green-700 border-green-200 hover:bg-green-50 px-2 py-1 h-auto text-xs"
+                          >
+                            End
+                          </Button>
+                          <Button
+                            onClick={() => handleCancelLabel(label.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-700 border-red-200 hover:bg-red-50 px-2 py-1 h-auto text-xs"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Comments List - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-3 pb-6 space-y-2 custom-scrollbar">
+              {videoComments.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare size={48} className="mx-auto text-gray-300 mb-4" />
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">No Comments Yet</h4>
+                  <p className="text-gray-500">Be the first to share your thoughts on this video.</p>
+                </div>
+              ) : (
+                videoComments.map((comment, index) => {
                   const isEvaluation = isEvaluationComment(comment);
                   
                   return (
-                  <div 
-                    key={comment.name} 
-                    className={`group p-4 rounded-xl border transition-all duration-300 transform hover:-translate-y-1 ${
-                      isEvaluation 
-                        ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 hover:shadow-lg hover:shadow-green-100' 
-                        : 'bg-white border-gray-100 hover:shadow-md'
-                    }`}
-                    style={{ animationDelay: `${index * 100}ms` }}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg ${
+                    <div 
+                      key={comment.name} 
+                      className={`group p-3 rounded-lg border transition-all duration-300 ${
                         isEvaluation 
-                          ? 'bg-gradient-to-br from-green-600 to-emerald-600' 
-                          : 'bg-blue-600'
-                      }`}>
-                        {isEvaluation ? (
-                          <ClipboardCheck size={16} className="text-white" />
-                        ) : (
-                        <User size={16} className="text-white" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="font-semibold text-gray-900">
-                              {comment.doctor_name || comment.doctor}
-                            </span>
-                            {isEvaluation && (
-                              <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1">
-                                <ClipboardCheck size={10} />
-                                Evaluation
-                              </span>
-                            )}
-                            <button
-                              onClick={() => seekToTime(video.title, comment.timestamp)}
-                              className={`group/btn px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 transition-all duration-300 transform hover:scale-105 shadow-md hover:shadow-lg ${
-                                isEvaluation 
-                                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-                              }`}
-                            >
-                              <Clock size={12} className="group-hover/btn:scale-110 transition-transform duration-300" />
-                              {formatTime(comment.timestamp)}
-                            </button>
-                            
-                            {/* Duration Display with Edit Functionality */}
-                            {editingDuration?.commentName === comment.name ? (
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1 bg-white border border-orange-300 rounded-full px-2 py-1">
-                                                                     <Clock size={12} className="text-orange-600" />
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max="600"
-                                    value={editingDuration.duration}
-                                    onChange={(e) => setEditingDuration(prev => prev ? { ...prev, duration: parseInt(e.target.value) || 30 } : null)}
-                                    className="w-12 bg-transparent text-xs font-medium text-orange-700 border-none outline-none text-center"
-                                    disabled={isUpdatingDuration}
-                                  />
-                                  <span className="text-xs text-orange-700">s</span>
-                                </div>
-                                <button
-                                  onClick={handleSaveDuration}
-                                  disabled={isUpdatingDuration}
-                                  className="p-1 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-                                  title="Save duration"
-                                >
-                                  <Save size={12} />
-                                </button>
-                                <button
-                                  onClick={handleCancelDurationEdit}
-                                  disabled={isUpdatingDuration}
-                                  className="p-1 text-gray-600 hover:text-gray-700 hover:bg-gray-50 rounded transition-colors"
-                                  title="Cancel"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => handleEditDuration(comment)}
-                                className={`group/duration px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 shadow-sm transition-all hover:shadow-md ${
-                                  isEvaluation 
-                                    ? 'bg-green-100 text-green-700 border border-green-200 hover:bg-green-200'
-                                    : 'bg-orange-100 text-orange-700 border border-orange-200 hover:bg-orange-200'
-                                }`}
-                                title="Click to edit duration"
-                              >
-                                                                 <Clock size={12} className="group-hover/duration:scale-110 transition-transform duration-200" />
-                                {comment.duration || 30}s
-                                <Edit3 size={10} className="opacity-0 group-hover/duration:opacity-100 transition-opacity duration-200" />
-                              </button>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                          {comment.created_at && (
-                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                              {formatDate(comment.created_at)}
-                            </span>
+                          ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 hover:shadow-md' 
+                          : 'bg-white border-gray-200 hover:shadow-sm'
+                      }`}
+                      style={{ animationDelay: `${index * 100}ms` }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          isEvaluation 
+                            ? 'bg-gradient-to-br from-green-600 to-emerald-600' 
+                            : 'bg-gradient-to-br from-blue-600 to-indigo-600'
+                        }`}>
+                          {isEvaluation ? (
+                            <ClipboardCheck size={14} className="text-white" />
+                          ) : (
+                            <MessageSquare size={14} className="text-white" />
                           )}
-                            {canEditComment(comment) && (
-                              <button
-                                onClick={() => handleEditComment(comment)}
-                                disabled={isUpdatingComment || editingComment?.name === comment.name}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg"
-                                title="Edit comment"
-                              >
-                                <Edit3 size={14} />
-                              </button>
-                          )}
-                            {canDeleteComment(comment) && (
-                              <button
-                                onClick={() => setCommentToDelete({ name: comment.name, text: comment.comment_text })}
-                                disabled={isDeletingComment}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                                title="Delete comment"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )}
-                          </div>
                         </div>
                         
-                        {/* Comment content - show editing interface if this comment is being edited */}
-                        {editingComment?.name === comment.name ? (
-                          <div className="space-y-3">
-                            <textarea
-                              value={editCommentText}
-                              onChange={(e) => setEditCommentText(e.target.value)}
-                              rows={3}
-                              className="w-full rounded-lg border border-blue-200 bg-blue-50/50 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 px-3 py-2 text-gray-900 placeholder-gray-500 transition-all duration-300 resize-none"
-                              placeholder="Edit your comment..."
-                              disabled={isUpdatingComment}
-                            />
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                onClick={handleCancelEdit}
-                                variant="outline"
-                                size="sm"
-                                disabled={isUpdatingComment}
-                                className="text-gray-600 border-gray-200 hover:bg-gray-50"
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">
+                                {comment.doctor_name || comment.doctor || 'Unknown'}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {formatDate(comment.created_at)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleSeek(video.title, comment.timestamp)}
+                                className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full hover:bg-blue-200 transition-colors"
+                                title="Jump to this time"
                               >
-                                <X size={12} className="mr-1" />
-                                Cancel
-                              </Button>
-                              <Button
-                                onClick={handleSaveComment}
-                                size="sm"
-                                disabled={isUpdatingComment || !editCommentText.trim()}
-                                className="bg-blue-600 hover:bg-blue-700 text-white"
-                              >
-                                <Save size={12} className="mr-1" />
-                                {isUpdatingComment ? 'Saving...' : 'Save'}
-                              </Button>
+                                {formatTime(comment.timestamp)}
+                                {comment.duration && ` (+${formatTime(comment.duration)})`}
+                              </button>
+                              {canEditComment(comment) && (
+                                <Button
+                                  onClick={() => handleEditComment(comment)}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-blue-600"
+                                >
+                                  <Edit3 size={12} />
+                                </Button>
+                              )}
+                              {canDeleteComment(comment) && (
+                                <Button
+                                  onClick={() => setCommentToDelete({ name: comment.name, text: comment.comment_text })}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-red-600"
+                                >
+                                  <Trash2 size={12} />
+                                </Button>
+                              )}
                             </div>
                           </div>
-                        ) : (
-                        <div
-                          className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words"
-                          dangerouslySetInnerHTML={{ 
-                            __html: isEvaluation 
-                              ? formatEvaluationDisplay(comment.comment_text)
-                              : comment.comment_text 
-                          }}
-                        />
-                        )}
+                          
+                          {editingComment?.name === comment.name ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editCommentText}
+                                onChange={(e) => setEditCommentText(e.target.value)}
+                                className="w-full p-2 border border-gray-200 rounded-md text-sm resize-none"
+                                rows={3}
+                              />
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  onClick={handleSaveComment}
+                                  size="sm"
+                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 text-xs"
+                                >
+                                  <Save size={12} className="mr-1" />
+                                  Save
+                                </Button>
+                                <Button
+                                  onClick={handleCancelEdit}
+                                  variant="outline"
+                                  size="sm"
+                                  className="px-3 py-1 text-xs"
+                                >
+                                  <X size={12} className="mr-1" />
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                              {comment.comment_text}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   };
 
@@ -2094,9 +2427,7 @@ const SessionDetail = () => {
                 <Button
                   onClick={() => {
                     setShowFloatingComment(false);
-                    // Reset annotation settings when closing
-                    setAnnotationDuration(30);
-                    setAnnotationCommentType('positive');
+                    // Don't reset annotation settings when closing - preserve user preferences
                   }}
                   variant="ghost"
                   size="sm"
@@ -2136,11 +2467,40 @@ const SessionDetail = () => {
               
               {/* Compact Timestamp & Settings - Fixed at top */}
               <div className="bg-gray-50 rounded-lg p-3 mt-4">
+                {/* Mode Selector */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Labeling Mode
+                  </label>
+                  <div className="flex space-x-1 bg-white p-1 rounded-md border border-gray-200">
+                    <button
+                      onClick={() => setLabelMode('start_end')}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-sm font-medium transition-all duration-200 text-xs ${
+                        labelMode === 'start_end'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      🎯 Start/End
+                    </button>
+                    <button
+                      onClick={() => setLabelMode('duration')}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-sm font-medium transition-all duration-200 text-xs ${
+                        labelMode === 'duration'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      ⏱️ Duration
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {/* Timestamp */}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Timestamp
+                      {labelMode === 'start_end' ? 'Start Time' : 'Timestamp'}
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -2163,42 +2523,62 @@ const SessionDetail = () => {
                     </div>
                   </div>
 
-                  {/* Duration */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Duration
-                    </label>
-                    <select
-                      value={annotationDuration}
-                      onChange={(e) => setAnnotationDuration(parseInt(e.target.value))}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
-                    >
-                      <option value={10}>10s</option>
-                      <option value={15}>15s</option>
-                      <option value={30}>30s</option>
-                      <option value={60}>1min</option>
-                      <option value={120}>2min</option>
-                      <option value={300}>5min</option>
-                    </select>
-                  </div>
+
 
                   {/* Type */}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Type
+                      ISBAR Evaluation
                     </label>
                     <select
                       value={annotationCommentType}
                       onChange={(e) => setAnnotationCommentType(e.target.value as any)}
                       className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                     >
-                      <option value="positive">✅ Positive</option>
-                      <option value="neutral">💬 General</option>
-                      <option value="warning">⚠️ Attention</option>
-                      <option value="critical">❌ Critical</option>
+                      <option value="identification">🏥 Identification</option>
+                      <option value="situation">📊 Situation</option>
+                      <option value="background">📋 Background</option>
+                      <option value="assessment">🔍 Assessment</option>
+                      <option value="recommendation">💡 Recommendation</option>
+                      <option value="general">💬 General</option>
                     </select>
                   </div>
                 </div>
+
+                {/* Active Labels Display */}
+                {labelMode === 'start_end' && getActiveLabelsForVideo(currentVideo.title).length > 0 && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-xs font-medium text-blue-800 mb-2">Active Labels:</div>
+                    <div className="space-y-2">
+                      {getActiveLabelsForVideo(currentVideo.title).map((label) => (
+                        <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                          <div className="flex-1">
+                            <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                            <div className="text-xs text-gray-500">Started at {formatTime(label.startTime)}</div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              onClick={() => handleEndLabel(label.id)}
+                              variant="outline"
+                              size="sm"
+                              className="text-green-700 border-green-200 hover:bg-green-50 px-2 py-1 h-auto text-xs"
+                            >
+                              End
+                            </Button>
+                            <Button
+                              onClick={() => handleCancelLabel(label.id)}
+                              variant="outline"
+                              size="sm"
+                              className="text-red-700 border-red-200 hover:bg-red-50 px-2 py-1 h-auto text-xs"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2509,9 +2889,7 @@ const SessionDetail = () => {
                   <Button
                     onClick={() => {
                       setShowFloatingComment(false);
-                      // Reset annotation settings when canceling
-                      setAnnotationDuration(30);
-                      setAnnotationCommentType('positive');
+                      // Don't reset annotation settings when canceling - preserve user preferences
                     }}
                     variant="outline"
                     size="sm"
@@ -2520,36 +2898,54 @@ const SessionDetail = () => {
                     Cancel
                   </Button>
                   {activeTab === 'comment' ? (
-                    <Button
-                      onClick={() => {
-                        // Update the timestamp first
-                        if (currentVideo) {
-                          const currentState = videoPlayerStates.get(currentVideo.title);
-                          if (currentState) {
-                            setVideoPlayerStates(prevStates => {
-                              const newStates = new Map(prevStates);
-                              newStates.set(currentVideo.title, {
-                                ...currentState,
-                                currentTime: floatingCommentTimestamp
-                              });
-                              return newStates;
-                            });
-                          }
-                        }
-                        // Add the comment with duration and type
-                        handleAddComment(currentVideo.title, floatingCommentTimestamp, annotationDuration, annotationCommentType);
-                        setShowFloatingComment(false);
-                        // Reset annotation settings after successful submission
-                        setAnnotationDuration(30);
-                        setAnnotationCommentType('positive');
-                      }}
-                      disabled={isAddingComment || !videoPlayerStates.get(currentVideo.title)?.newComment.trim()}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
-                    >
-                      <Send size={14} className="mr-1" />
-                      {isAddingComment ? 'Adding...' : 'Add Annotation'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {labelMode === 'start_end' ? (
+                        <Button
+                          onClick={() => {
+                            const comment = videoPlayerStates.get(currentVideo.title)?.newComment.trim();
+                            if (comment) {
+                              handleStartLabel(currentVideo.title, comment, annotationCommentType);
+                              setShowFloatingComment(false);
+                            }
+                          }}
+                          disabled={isAddingComment || !videoPlayerStates.get(currentVideo.title)?.newComment.trim()}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2"
+                        >
+                          <Target size={14} className="mr-1" />
+                          {isAddingComment ? 'Starting...' : 'Start Label'}
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            // Update the timestamp first
+                            if (currentVideo) {
+                              const currentState = videoPlayerStates.get(currentVideo.title);
+                              if (currentState) {
+                                setVideoPlayerStates(prevStates => {
+                                  const newStates = new Map(prevStates);
+                                  newStates.set(currentVideo.title, {
+                                    ...currentState,
+                                    currentTime: floatingCommentTimestamp
+                                  });
+                                  return newStates;
+                                });
+                              }
+                            }
+                            // Add the comment with duration and type
+                            handleAddComment(currentVideo.title, floatingCommentTimestamp, annotationDuration, annotationCommentType);
+                            setShowFloatingComment(false);
+                            // Don't reset annotation settings after successful submission - preserve user preferences
+                          }}
+                          disabled={isAddingComment || !videoPlayerStates.get(currentVideo.title)?.newComment.trim()}
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
+                        >
+                          <Send size={14} className="mr-1" />
+                          {isAddingComment ? 'Adding...' : 'Add Annotation'}
+                        </Button>
+                      )}
+                    </div>
                   ) : (
                     <Button
                       onClick={handleAddEvaluation}
@@ -2756,241 +3152,208 @@ const SessionDetail = () => {
       {/* Template Manager Modal */}
       {showTemplateManager && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-gray-200 animate-fade-in-up max-h-[90vh] overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center shadow-lg">
-                    <Edit3 size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">Manage Comment Templates</h3>
-                    <p className="text-sm text-gray-600">Create and customize your own quick templates</p>
-                  </div>
-                </div>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] border border-gray-200 animate-fade-in-up overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Template Manager</h3>
                 <Button
-                  onClick={() => {
-                    setShowTemplateManager(false);
-                    setEditingTemplate(null);
-                    setNewTemplate({ title: '', content: '', color: 'blue', emoji: '💬' });
-                  }}
+                  onClick={() => setShowTemplateManager(false)}
                   variant="ghost"
                   size="sm"
-                  className="text-gray-400 hover:text-gray-600 p-2 rounded-lg"
+                  className="text-gray-400 hover:text-gray-600"
                 >
                   ✕
                 </Button>
               </div>
-              
-              <div className="flex gap-6 max-h-[70vh] overflow-hidden">
-                {/* Left Panel - Create/Edit Template */}
-                <div className="w-1/2 space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">
-                      {editingTemplate ? 'Edit Template' : 'Create New Template'}
-                    </h4>
-                    
-                    <div className="space-y-4">
-                      {/* Template Title */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Template Title
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g., Excellent Suturing"
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                          value={editingTemplate ? editingTemplate.title : newTemplate.title}
-                          onChange={(e) => {
-                            if (editingTemplate) {
-                              setEditingTemplate({ ...editingTemplate, title: e.target.value });
-                            } else {
-                              setNewTemplate({ ...newTemplate, title: e.target.value });
-                            }
-                          }}
-                        />
-                      </div>
-
-                      {/* Template Content */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Template Content
-                        </label>
-                        <textarea
-                          rows={4}
-                          placeholder="Describe the template content that will be inserted when used..."
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
-                          value={editingTemplate ? editingTemplate.content : newTemplate.content}
-                          onChange={(e) => {
-                            if (editingTemplate) {
-                              setEditingTemplate({ ...editingTemplate, content: e.target.value });
-                            } else {
-                              setNewTemplate({ ...newTemplate, content: e.target.value });
-                            }
-                          }}
-                        />
-                      </div>
-
-                      {/* Emoji and Color */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Emoji
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="💬"
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-center"
-                            value={editingTemplate ? editingTemplate.emoji : newTemplate.emoji}
-                            onChange={(e) => {
-                              if (editingTemplate) {
-                                setEditingTemplate({ ...editingTemplate, emoji: e.target.value });
-                              } else {
-                                setNewTemplate({ ...newTemplate, emoji: e.target.value });
-                              }
-                            }}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Color
-                          </label>
-                          <select
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                            value={editingTemplate ? editingTemplate.color : newTemplate.color}
-                            onChange={(e) => {
-                              if (editingTemplate) {
-                                setEditingTemplate({ ...editingTemplate, color: e.target.value });
-                              } else {
-                                setNewTemplate({ ...newTemplate, color: e.target.value });
-                              }
-                            }}
-                          >
-                            <option value="blue">Blue</option>
-                            <option value="green">Green</option>
-                            <option value="yellow">Yellow</option>
-                            <option value="red">Red</option>
-                            <option value="purple">Purple</option>
-                            <option value="indigo">Indigo</option>
-                            <option value="pink">Pink</option>
-                            <option value="gray">Gray</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Preview */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Preview
-                        </label>
-                        <div 
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            getColorClasses(editingTemplate ? editingTemplate.color : newTemplate.color)
-                          }`}
-                        >
-                          <div className="text-sm font-medium">
-                            {editingTemplate ? editingTemplate.emoji : newTemplate.emoji} {editingTemplate ? editingTemplate.title : newTemplate.title || 'Template Title'}
-                          </div>
-                          <div className="text-xs text-gray-600 mt-1">
-                            {editingTemplate ? editingTemplate.content : newTemplate.content || 'Template content will appear here...'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-3 pt-4">
-                        {editingTemplate ? (
-                          <>
-                            <Button
-                              onClick={handleUpdateTemplate}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
-                            >
-                              <Save size={14} className="mr-2" />
-                              Update Template
-                            </Button>
-                            <Button
-                              onClick={handleCancelTemplateEdit}
-                              variant="outline"
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            onClick={handleCreateTemplate}
-                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2"
-                          >
-                            <Save size={14} className="mr-2" />
-                            Create Template
-                          </Button>
-                        )}
-                      </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Create New Template */}
+              <div className="mb-8">
+                <h4 className="text-base font-semibold text-gray-900 mb-4">Create New Template</h4>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Title
+                      </label>
+                      <input
+                        type="text"
+                        value={newTemplate.title}
+                        onChange={(e) => setNewTemplate(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="Template title"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Emoji
+                      </label>
+                      <input
+                        type="text"
+                        value={newTemplate.emoji}
+                        onChange={(e) => setNewTemplate(prev => ({ ...prev, emoji: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="📝"
+                        maxLength={2}
+                      />
                     </div>
                   </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Content
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={newTemplate.content}
+                      onChange={(e) => setNewTemplate(prev => ({ ...prev, content: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
+                      placeholder="Template content..."
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Color
+                    </label>
+                    <select
+                      value={newTemplate.color}
+                      onChange={(e) => setNewTemplate(prev => ({ ...prev, color: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="blue">Blue</option>
+                      <option value="green">Green</option>
+                      <option value="yellow">Yellow</option>
+                      <option value="red">Red</option>
+                      <option value="purple">Purple</option>
+                    </select>
+                  </div>
+                  
+                  <Button
+                    onClick={handleCreateTemplate}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Create Template
+                  </Button>
                 </div>
-
-                {/* Right Panel - Existing Templates */}
-                <div className="w-1/2 space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4 h-full">
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">
-                      Your Templates ({Array.isArray(customTemplates) ? customTemplates.length : 0})
-                    </h4>
-                    
-                    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                      {!Array.isArray(customTemplates) || customTemplates.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500">
-                          <Edit3 size={48} className="mx-auto text-gray-300 mb-4" />
-                          <p className="text-lg font-medium">No templates yet</p>
-                          <p className="text-sm">Create your first custom template to get started</p>
-                        </div>
-                      ) : (
-                        customTemplates.map((template) => (
-                          <div
-                            key={template.name}
-                            className={`border-2 rounded-lg p-4 transition-all hover:shadow-md ${
-                              editingTemplate?.name === template.name 
-                                ? 'bg-blue-50 border-blue-300' 
-                                : 'bg-white border-gray-200 hover:border-gray-300'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className={`text-sm font-medium ${getColorClasses(template.color).split(' ')[0]}`}>
-                                  {template.emoji} {template.title}
-                                </div>
-                                <div className="text-xs text-gray-600 mt-1 line-clamp-3">
-                                  {template.content}
-                                </div>
-                                <div className="text-xs text-gray-400 mt-2">
-                                  Created {new Date(template.created).toLocaleDateString()}
-                                </div>
+              </div>
+              
+              {/* Existing Templates */}
+              <div>
+                <h4 className="text-base font-semibold text-gray-900 mb-4">Your Templates</h4>
+                {Array.isArray(customTemplates) && customTemplates.length > 0 ? (
+                  <div className="space-y-3">
+                    {customTemplates.map((template) => (
+                      <div key={template.name} className="border border-gray-200 rounded-lg p-4">
+                        {editingTemplate?.name === template.name ? (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Title
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editingTemplate.title}
+                                  onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, title: e.target.value } : null)}
+                                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
                               </div>
-                              <div className="flex items-center gap-1 ml-3">
-                                <Button
-                                  onClick={() => handleEditTemplate(template)}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="p-1 h-8 w-8 text-blue-600 hover:bg-blue-100"
-                                >
-                                  <Edit3 size={14} />
-                                </Button>
-                                <Button
-                                  onClick={() => handleDeleteTemplate(template.name)}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="p-1 h-8 w-8 text-red-600 hover:bg-red-100"
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Emoji
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editingTemplate.emoji}
+                                  onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, emoji: e.target.value } : null)}
+                                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                  maxLength={2}
+                                />
                               </div>
                             </div>
+                            
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Content
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={editingTemplate.content}
+                                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, content: e.target.value } : null)}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
+                              />
+                            </div>
+                            
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Color
+                              </label>
+                              <select
+                                value={editingTemplate.color}
+                                onChange={(e) => setEditingTemplate(prev => prev ? { ...prev, color: e.target.value } : null)}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                              >
+                                <option value="blue">Blue</option>
+                                <option value="green">Green</option>
+                                <option value="yellow">Yellow</option>
+                                <option value="red">Red</option>
+                                <option value="purple">Purple</option>
+                              </select>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <Button
+                                onClick={handleUpdateTemplate}
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                Save
+                              </Button>
+                              <Button
+                                onClick={handleCancelTemplateEdit}
+                                variant="outline"
+                                size="sm"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
                           </div>
-                        ))
-                      )}
-                    </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-lg">{template.emoji}</span>
+                                <span className="font-medium text-gray-900">{template.title}</span>
+                              </div>
+                              <p className="text-sm text-gray-600 line-clamp-2">{template.content}</p>
+                            </div>
+                            <div className="flex items-center gap-2 ml-4">
+                              <Button
+                                onClick={() => handleEditTemplate(template)}
+                                variant="outline"
+                                size="sm"
+                              >
+                                <Edit3 size={14} />
+                              </Button>
+                              <Button
+                                onClick={() => handleDeleteTemplate(template.name)}
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">No custom templates yet. Create your first template above!</p>
+                )}
               </div>
             </div>
           </div>
