@@ -1,0 +1,113 @@
+{
+    "actions": [],
+    "autoname": "field:title",
+    "creation": "2024-08-02 00:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "title",
+        "section_id",
+        "category",
+        "content",
+        "icon",
+        "order_index",
+        "is_published",
+        "last_updated"
+    ],
+    "fields": [
+        {
+            "fieldname": "title",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Title",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "fieldname": "section_id",
+            "fieldtype": "Data",
+            "label": "Section ID",
+            "description": "Unique identifier for the instruction section",
+            "reqd": 1
+        },
+        {
+            "fieldname": "category",
+            "fieldtype": "Select",
+            "label": "Category",
+            "options": "Getting Started\nVideo Training\nComments & Labeling\nAccount Management\nCollaboration\nTroubleshooting\nGeneral",
+            "default": "General",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "content",
+            "fieldtype": "Text Editor",
+            "label": "Content",
+            "description": "Instruction content in HTML format",
+            "reqd": 1
+        },
+        {
+            "fieldname": "icon",
+            "fieldtype": "Data",
+            "label": "Icon",
+            "description": "Icon name for the instruction section (e.g., BookOpen, Video, etc.)",
+            "default": "HelpCircle"
+        },
+        {
+            "fieldname": "order_index",
+            "fieldtype": "Int",
+            "label": "Display Order",
+            "description": "Order in which to display this instruction",
+            "default": "0"
+        },
+        {
+            "fieldname": "is_published",
+            "fieldtype": "Check",
+            "label": "Published",
+            "description": "Whether this instruction is visible to users",
+            "default": "1"
+        },
+        {
+            "fieldname": "last_updated",
+            "fieldtype": "Datetime",
+            "label": "Last Updated",
+            "read_only": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2024-08-02 00:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Surgical Training",
+    "name": "Instruction",
+    "naming_rule": "By fieldname",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 0,
+            "delete": 0,
+            "email": 0,
+            "export": 0,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Physician",
+            "share": 0,
+            "write": 0
+        }
+    ],
+    "sort_field": "order_index",
+    "sort_order": "ASC",
+    "states": []
+}

@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import now
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def get_session_assignments():
     """Get all session assignments for admin view"""
     try:
@@ -26,7 +26,7 @@ def get_session_assignments():
         frappe.log_error(f"Error getting session assignments: {str(e)}")
         return {"message": "Error", "error": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def assign_session_to_user(session_name, user_email):
     """Assign a session to a specific user"""
     try:
@@ -69,7 +69,7 @@ def assign_session_to_user(session_name, user_email):
         frappe.log_error(f"Error assigning session: {str(e)}")
         return {"message": "Error", "error": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def remove_session_assignment(assignment_name):
     """Remove a session assignment"""
     try:
@@ -93,7 +93,7 @@ def remove_session_assignment(assignment_name):
         frappe.log_error(f"Error removing assignment: {str(e)}")
         return {"message": "Error", "error": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def get_user_assigned_sessions(user_email=None):
     """Get sessions assigned to a specific user"""
     try:
@@ -168,7 +168,7 @@ def get_all_users():
         frappe.log_error(f"Error getting users: {str(e)}")
         return {"message": "Error", "error": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def bulk_assign_sessions(user_email, session_names):
     """Assign multiple sessions to a user at once"""
     try:

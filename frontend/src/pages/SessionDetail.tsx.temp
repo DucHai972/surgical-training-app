@@ -6,8 +6,13 @@ import { Button } from '../components/ui/button';
 
 import VideoList from '../components/VideoList';
 import CustomVideoPlayer from '../components/CustomVideoPlayer';
+import { isCurrentUserAdmin } from '../utils/api';
 
-import { ArrowLeft, MessageSquare, Clock, Video, Download, Send, Eye, Calendar, Users, FileText, Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, ClipboardCheck, Target, Maximize2, Columns, Grid, AlertTriangle, GraduationCap, Play, Square } from 'lucide-react';
+import { 
+  ArrowLeft, MessageSquare, Clock, Video, Download, Send, Eye, Calendar, Users, FileText, 
+  Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, 
+  ClipboardCheck, Target, Maximize2, Columns, Grid, AlertTriangle, GraduationCap, Play, Square 
+} from 'lucide-react';
 
 // TypeScript declarations for Web Speech API
 declare global {
@@ -145,7 +150,9 @@ const SessionDetail = () => {
   const [currentVideo, setCurrentVideo] = useState<Video | null>(null);
   const [videoPlayerStates, setVideoPlayerStates] = useState<Map<string, VideoPlayerState>>(new Map());
   const [comments, setComments] = useState<Comment[]>([]);
-  const [layout, setLayout] = useState<'single' | 'grid' | 'side-by-side'>('single');
+  const [layout, setLayout] = useState<'single' | 'side-by-side'>('single');
+  const [viewerVideos, setViewerVideos] = useState<Video[]>([]);
+  const [labelingVideo, setLabelingVideo] = useState<Video | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [showQuickComment, setShowQuickComment] = useState(false);
   const [quickCommentTimestamp] = useState(0);
@@ -242,7 +249,7 @@ const SessionDetail = () => {
 
   // Check user permissions for this session
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
-  const isAdmin = authUser === 'administrator@gmail.com';
+  const isAdmin = isCurrentUserAdmin(authUser || undefined);
 
   // Check session access
   useEffect(() => {
@@ -814,7 +821,7 @@ const SessionDetail = () => {
     if (!videoState) return;
 
     const newLabel: ActiveLabel = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       videoTitle,
       startTime: videoState.currentTime,
       comment,
@@ -1548,8 +1555,14 @@ const SessionDetail = () => {
     return videoComments.sort((a, b) => a.timestamp - b.timestamp);
   };
 
-  const changeLayout = (newLayout: 'single' | 'grid' | 'side-by-side') => {
+  const changeLayout = (newLayout: 'single' | 'side-by-side') => {
     setLayout(newLayout);
+    
+    // Initialize side-by-side mode with first video for labeling
+    if (newLayout === 'side-by-side' && sessionData && sessionData.videos.length > 0) {
+      setLabelingVideo(sessionData.videos[0]);
+      setViewerVideos([]);
+    }
   };
 
   // Sync all videos to the same timeline
@@ -1565,11 +1578,13 @@ const SessionDetail = () => {
     // Get all videos to sync (based on current layout)
     let videosToSync: Video[] = [];
     if (layout === 'side-by-side') {
-      videosToSync = sessionData.videos.slice(0, 2);
-    } else if (layout === 'grid') {
-      videosToSync = sessionData.videos;
+      // Sync all viewer videos plus labeling video
+      videosToSync = [...viewerVideos];
+      if (labelingVideo) {
+        videosToSync.push(labelingVideo);
+      }
     } else {
-      toast.error('Sync is only available in Side by Side or Grid mode');
+      toast.error('Sync is only available in Side by Side mode');
       return;
     }
 
@@ -1820,260 +1835,7 @@ const SessionDetail = () => {
     );
   }
 
-  // Render a video player for dual-video mode with comments underneath
-  const renderDualVideoPlayer = (video: Video, index: number) => {
-    if (!video) return null;
 
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    
-    return (
-      <div className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden">
-        {/* Video Section */}
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{video.title}</h3>
-          
-          {/* Video Player Container */}
-          <div className="w-full mb-4">
-            <div className="relative aspect-video">
-              {(() => {
-                const videoSrc = video.video_file && video.video_file.trim() 
-                  ? video.video_file
-                  : '/files/placeholder.mp4';
-                
-                console.log(`🎥 FRONTEND VIDEO PLAYER RENDER:`, {
-                  title: video.title,
-                  raw_video_file: video.video_file,
-                  computed_src: videoSrc,
-                });
-                
-                return (
-                  <CustomVideoPlayer
-                    src={videoSrc}
-                    title={video.title}
-                    comments={videoComments.map(comment => ({
-                      ...comment,
-                      isEvaluation: isEvaluationComment(comment)
-                    }))}
-                    isPlaying={videoState.isPlaying}
-                    currentTime={videoState.currentTime}
-                    onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-                    onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-                    onSeek={(time) => handleSeek(video.title, time)}
-                  />
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Comments Panel */}
-        <section className="comments-panel" aria-labelledby={`comments${index + 1}-title`}>
-          <h3 id={`comments${index + 1}-title`} className="sr-only">Comments for {video.title}</h3>
-          
-          {/* Comment Form */}
-          <div className="comment-form bg-gray-50 p-4 space-y-3">
-            {/* Compact Grid for Form Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Labeling Mode Toggle */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Labeling Mode</label>
-                <div className="flex space-x-1 bg-white p-1 rounded-md border border-gray-200">
-                  <button
-                    onClick={() => setLabelMode('start_end')}
-                    className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                      labelMode === 'start_end'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Start/End
-                  </button>
-                  <button
-                    onClick={() => setLabelMode('duration')}
-                    className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                      labelMode === 'duration'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Duration
-                  </button>
-                </div>
-              </div>
-
-              {/* ISBAR Select */}
-              <div>
-                <select
-                  value={annotationCommentType}
-                  onChange={(e) => setAnnotationCommentType(e.target.value as any)}
-                  className="w-full px-3 py-1 text-sm border rounded"
-                >
-                  <option value="identification">🏥 Identification</option>
-                  <option value="situation">📊 Situation</option>
-                  <option value="background">📋 Background</option>
-                  <option value="assessment">🔍 Assessment</option>
-                  <option value="recommendation">💡 Recommendation</option>
-                  <option value="general">💬 General</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Comment Textarea */}
-            <div>
-              <textarea
-                className="w-full h-20 px-3 py-2 text-sm border rounded resize-none"
-                placeholder="Describe what you observe at this moment..."
-                value={videoPlayerStates.get(video.title)?.newComment || ''}
-                onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              />
-            </div>
-
-            {/* Quick Templates & Actions */}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated. Good hand positioning and instrument control.')}
-                className="px-3 py-1 bg-green-100 text-green-700 text-sm rounded hover:bg-green-200 transition-colors"
-              >
-                ✓ Positive
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '⚠️ Attention needed: Consider adjusting approach for better safety and precision.')}
-                className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm rounded hover:bg-yellow-200 transition-colors"
-              >
-                ⚠ Attention
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.')}
-                className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200 transition-colors"
-              >
-                ⚠ Critical
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '🎯 Key learning moment: This demonstrates proper technique for this procedure.')}
-                className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200 transition-colors"
-              >
-                📚 Teaching
-              </button>
-              
-              {/* Action Buttons */}
-              {labelMode === 'start_end' ? (
-                <>
-                  {/* Start Label Button - Always Available */}
-                  <button
-                    onClick={() => {
-                      const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                      if (comment) {
-                        handleStartLabel(video.title, comment, annotationCommentType);
-                      }
-                    }}
-                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
-                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    Start Label
-                  </button>
-                  
-                  {/* End Label Button - Available when there are active labels */}
-                  <button
-                    onClick={() => {
-                      const activeLabelsForVideo = getActiveLabelsForVideo(video.title);
-                      if (activeLabelsForVideo.length === 1) {
-                        // If only one active label, end it directly
-                        handleEndLabel(activeLabelsForVideo[0].id);
-                      } else if (activeLabelsForVideo.length > 1) {
-                        // If multiple active labels, end the most recent one
-                        const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
-                        handleEndLabel(mostRecentLabel.id);
-                      }
-                    }}
-                    disabled={getActiveLabelsForVideo(video.title).length === 0}
-                    className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:bg-gray-400 transition-colors"
-                    title={getActiveLabelsForVideo(video.title).length > 1 ? `End most recent of ${getActiveLabelsForVideo(video.title).length} active labels` : getActiveLabelsForVideo(video.title).length === 1 ? "End active label" : "No active labels to end"}
-                  >
-                    End Label {getActiveLabelsForVideo(video.title).length > 0 && `(${getActiveLabelsForVideo(video.title).length})`}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => {
-                    const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
-                    handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
-                  }}
-                  disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
-                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-                >
-                  Add Comment
-                </button>
-              )}
-              
-              <button
-                onClick={() => {
-                  handleCommentChange(video.title, '');
-                  setIsbarValue(''); // Also clear ISBAR value
-                }}
-                className="ml-auto px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Comments List */}
-          <div className="comments-list max-h-80 overflow-y-auto space-y-3 p-4">
-            {videoComments.length === 0 ? (
-              <div className="text-center py-8">
-                <MessageSquare size={32} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-500 text-sm">No comments yet</p>
-              </div>
-            ) : (
-              videoComments.map((comment, commentIndex) => {
-                const commentType = getCommentType(comment);
-                const badge = getCommentBadge(commentType);
-                const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                
-                return (
-                  <div key={`comment-${comment.name}-${commentIndex}`} className="comment-item bg-white border rounded-lg p-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
-                        {initials}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm">{doctorName}</span>
-                          <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
-                          <span className={`px-2 py-0.5 text-xs rounded ${badge.classes}`}>
-                            {badge.label}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-700 line-clamp-3">
-                          {comment.comment_text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      </div>
-    );
-  };
-
-  // Render a video player for grid mode with compact comments underneath
-  const renderGridVideoPlayer = (video: Video, index: number) => {
-    if (!video) return null;
-
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    
-    return (
-      <article className="grid-video-card bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden flex flex-col h-full">
         {/* Video Section */}
         <div className="video-section p-3 border-b border-gray-200 flex-shrink-0">
           <h3 className="text-lg font-semibold text-gray-900 mb-3">{video.title}</h3>
@@ -2349,6 +2111,127 @@ const SessionDetail = () => {
     );
   };
 
+  // Render a video player only (no comments) for viewer videos
+  const renderVideoPlayerOnly = (video: Video) => {
+    if (!video) return null;
+
+    const videoState = videoPlayerStates.get(video.title);
+    if (!videoState) return null;
+    
+    const videoComments = getVideoComments(video.title);
+    
+    const videoSrc = video.video_file && video.video_file.trim() 
+      ? video.video_file
+      : '/files/placeholder.mp4';
+    
+    return (
+      <CustomVideoPlayer
+        src={videoSrc}
+        title={video.title}
+        comments={videoComments.map(comment => ({
+          ...comment,
+          isEvaluation: isEvaluationComment(comment)
+        }))}
+        isPlaying={videoState.isPlaying}
+        currentTime={videoState.currentTime}
+        onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
+        onPlayPause={(playing) => handlePlayPause(video.title, playing)}
+        onSeek={(time) => handleSeek(video.title, time)}
+      />
+    );
+  };
+
+  // Render compact comment section for labeling video
+  const renderCompactCommentSection = (video: Video) => {
+    if (!video) return null;
+
+    const videoState = videoPlayerStates.get(video.title);
+    if (!videoState) return null;
+    
+    const videoComments = getVideoComments(video.title);
+    const currentTime = videoState.currentTime || 0;
+    
+    return (
+      <div className="space-y-3">
+        {/* Quick Comment Form */}
+        <div className="bg-gray-50 p-3 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <label className="text-xs font-medium text-gray-700">Quick Comment:</label>
+            <span className="text-xs text-gray-500">@{formatTime(currentTime)}</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Add a comment..."
+              value={videoState.newComment || ''}
+              onChange={(e) => handleCommentChange(video.title, e.target.value)}
+              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && videoState.newComment?.trim()) {
+                  handleAddComment(video.title, currentTime, 60, 'general');
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                if (videoState.newComment?.trim()) {
+                  handleAddComment(video.title, currentTime, 60, 'general');
+                }
+              }}
+              disabled={!videoState.newComment?.trim()}
+              className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {/* Comments List */}
+        <div className="max-h-64 overflow-y-auto">
+          {videoComments.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">
+              <MessageSquare size={20} className="mx-auto mb-1 text-gray-400" />
+              <p className="text-xs">No comments yet</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {videoComments.map((comment, index) => {
+                const commentType = getCommentType(comment);
+                const badge = getCommentBadge(commentType);
+                const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
+                const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                
+                return (
+                  <div key={`compact-comment-${comment.name}-${index}`} className="bg-white border rounded-lg p-2">
+                    <div className="flex items-start gap-2">
+                      <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
+                        {initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className="text-xs font-medium truncate">{doctorName}</span>
+                          <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className={`px-1 py-0.5 text-xs rounded ${badge.classes}`}>
+                            {badge.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-700 line-clamp-2">
+                          {comment.comment_text}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Render a single video with comments
   const renderVideoPlayer = (video: Video) => {
     if (!video) return null;
@@ -2371,8 +2254,8 @@ const SessionDetail = () => {
               <p className="text-gray-600 mt-1">{video.description}</p>
             </div>
             
-            {/* Sync Button - Only show in multi-video modes */}
-            {(layout === 'side-by-side' || layout === 'grid') && sessionData && sessionData.videos.length >= 2 && (
+            {/* Sync Button - Only show in side-by-side mode */}
+            {layout === 'side-by-side' && sessionData && sessionData.videos.length >= 2 && (
               <Button
                 onClick={() => syncVideosToReference(video)}
                 variant="outline"
@@ -2506,9 +2389,9 @@ const SessionDetail = () => {
                   <Button
                     onClick={() => handleFloatingComment()}
                     size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg shadow-sm hover:shadow-md transition-all duration-300"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 md:px-4 py-1 md:py-2 text-sm md:text-base rounded-lg shadow-sm hover:shadow-md transition-all duration-300 min-h-[36px] md:min-h-[44px]"
                   >
-                    <MessageSquare size={14} className="mr-1" />
+                    <MessageSquare size={14} className="mr-1 md:mr-2 md:w-4 md:h-4" />
                     Comment
                   </Button>
                 </div>
@@ -2598,8 +2481,8 @@ const SessionDetail = () => {
                   </span>
                 </h3>
                 <div className="flex items-center gap-2">
-                  <div className="bg-white px-3 py-1 rounded-full border border-gray-200">
-                    <span className="text-sm font-mono text-gray-700">
+                  <div className="bg-white px-3 md:px-4 py-1 md:py-2 rounded-full border border-gray-200">
+                    <span className="text-sm md:text-base font-mono text-gray-700">
                       {formatTime(videoState.currentTime)}
                     </span>
                   </div>
@@ -2967,7 +2850,6 @@ const SessionDetail = () => {
                 </div>
               ) : (
                 videoComments.map((comment, index) => {
-                  const isEvaluation = isEvaluationComment(comment);
                   const commentType = getCommentType(comment);
                   const badge = getCommentBadge(commentType);
                   const isExpanded = expandedComments.has(comment.name);
@@ -3182,8 +3064,8 @@ const SessionDetail = () => {
         </div>
       </div>
     );
-  };
-
+  
+  // Main SessionDetail component return
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="py-8 px-4 sm:px-6 lg:px-8">
@@ -3305,45 +3187,32 @@ const SessionDetail = () => {
               <Eye size={24} className="text-blue-500" />
               Video Viewer
             </h2>
-            <div className="flex items-center gap-3 bg-white/50 backdrop-blur-sm p-2 rounded-2xl border border-gray-200 shadow-lg">
+            <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm p-1.5 rounded-xl border border-gray-200 shadow-lg">
               <Button
                 variant={layout === 'single' ? 'default' : 'ghost'}
-                size="lg"
+                size="sm"
                 onClick={() => changeLayout('single')}
-                className={`group flex items-center gap-3 transition-all duration-300 transform hover:scale-105 rounded-xl px-6 py-4 min-h-[56px] ${
+                className={`group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg px-3 py-2 min-h-[36px] ${
                   layout === 'single' 
                     ? 'bg-blue-600 text-white shadow-md' 
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <Maximize2 size={18} className="group-hover:scale-110 transition-transform duration-300" />
-                <span className="text-base font-medium">Single</span>
+                <Maximize2 size={14} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-sm font-medium">Single</span>
               </Button>
               <Button
                 variant={layout === 'side-by-side' ? 'default' : 'ghost'}
-                size="lg"
+                size="sm"
                 onClick={() => changeLayout('side-by-side')}
-                className={`group flex items-center gap-3 transition-all duration-300 transform hover:scale-105 rounded-xl px-6 py-4 min-h-[56px] ${
+                className={`group flex items-center gap-2 transition-all duration-300 transform hover:scale-105 rounded-lg px-3 py-2 min-h-[36px] ${
                   layout === 'side-by-side' 
                     ? 'bg-blue-600 text-white shadow-md' 
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <Columns size={18} className="group-hover:scale-110 transition-transform duration-300" />
-                <span className="text-base font-medium">Side by Side</span>
-              </Button>
-              <Button
-                variant={layout === 'grid' ? 'default' : 'ghost'}
-                size="lg"
-                onClick={() => changeLayout('grid')}
-                className={`group flex items-center gap-3 transition-all duration-300 transform hover:scale-105 rounded-xl px-6 py-4 min-h-[56px] ${
-                  layout === 'grid' 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <Grid size={18} className="group-hover:scale-110 transition-transform duration-300" />
-                <span className="text-base font-medium">Grid</span>
+                <Columns size={14} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-sm font-medium">Side by Side</span>
               </Button>
             </div>
           </div>
@@ -3359,103 +3228,149 @@ const SessionDetail = () => {
           </div>
         )}
         
-        {layout === 'side-by-side' && sessionData && sessionData.videos.length >= 2 && (
-          <div className="w-full max-w-7xl mx-auto space-y-6">
-            {/* Global Sync Control */}
-            <div className="flex justify-center" role="toolbar" aria-label="Video synchronization controls">
-              <button
-                type="button"
-                onClick={() => {
-                  // Sync all videos to the first video's current time
-                  const firstVideo = sessionData.videos[0];
-                  syncVideosToReference(firstVideo);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-                aria-pressed="false"
-              >
-                <Zap size={16} />
-                Sync Videos
-              </button>
-              <button
-                type="button"
-                className="ml-2 p-2 text-gray-500 hover:text-gray-700"
-                title="Keyboard shortcuts: Space=play/pause, ←/→=seek, ↑/↓=volume"
-                aria-label="Show keyboard shortcuts"
-              >
-                <Info size={16} />
-              </button>
+        {layout === 'side-by-side' && sessionData && (
+          <div className="w-full max-w-full mx-auto space-y-6">
+            {/* Video Selection and Sync Controls */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/50 backdrop-blur-sm p-4 rounded-xl border border-gray-200 shadow-lg">
+              {/* Labeling Video Selection */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-gray-700">Video for Labeling:</label>
+                <select
+                  value={labelingVideo?.title || ''}
+                  onChange={(e) => {
+                    const selectedVideo = sessionData.videos.find(v => v.title === e.target.value);
+                    setLabelingVideo(selectedVideo || null);
+                  }}
+                  className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select video for labeling</option>
+                  {sessionData.videos.map((video) => (
+                    <option key={video.title} value={video.title}>
+                      {video.title}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-            {/* Dual Video Grid */}
-            <div className="dual-video-grid grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {sessionData.videos.slice(0, 2).map((video, index) => (
-                <article 
-                  key={video.title} 
-                  className="video-card animate-fade-in-up" 
-                  role="region" 
-                  aria-labelledby={`video${index + 1}-title`}
-                  style={{ animationDelay: `${index * 200}ms` }}
-                >
-                  <header>
-                    <h2 id={`video${index + 1}-title`} className="sr-only">{video.title} Video Player</h2>
-                  </header>
+              {/* Sync Control */}
+              {(viewerVideos.length > 0 || labelingVideo) && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (labelingVideo) {
+                        syncVideosToReference(labelingVideo);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
+                  >
+                    <Zap size={16} />
+                    Sync All Videos
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Multi-Video Layout */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              {/* Left Side - Video Viewers */}
+              <div className="xl:col-span-2 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-gray-900">Video Viewers</h3>
+                  <div className="flex gap-2">
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const selectedVideo = sessionData.videos.find(v => v.title === e.target.value);
+                          if (selectedVideo && !viewerVideos.find(v => v.title === selectedVideo.title)) {
+                            setViewerVideos([...viewerVideos, selectedVideo]);
+                          }
+                        }
+                        e.target.value = '';
+                      }}
+                      className="px-3 py-1 bg-white border border-gray-300 rounded text-sm"
+                    >
+                      <option value="">+ Add Video</option>
+                      {sessionData.videos
+                        .filter(v => !viewerVideos.find(vv => vv.title === v.title) && v.title !== labelingVideo?.title)
+                        .map((video) => (
+                          <option key={video.title} value={video.title}>
+                            {video.title}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                
+                {viewerVideos.length === 0 ? (
+                  <div className="h-64 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <Video size={48} className="mx-auto mb-2 text-gray-400" />
+                      <p>Add videos to watch alongside the labeling video</p>
+                      <p className="text-sm">Use the dropdown above to add videos</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {viewerVideos.map((video, index) => (
+                      <div key={video.title} className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden">
+                        <div className="p-3 border-b border-gray-200 flex justify-between items-center">
+                          <h4 className="font-medium text-gray-900">{video.title}</h4>
+                          <button
+                            onClick={() => {
+                              setViewerVideos(viewerVideos.filter(v => v.title !== video.title));
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-500 rounded"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                        <div className="p-3">
+                          <div className="aspect-video">
+                            {renderVideoPlayerOnly(video)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right Side - Labeling Video with Comments */}
+              <div className="xl:col-span-1">
+                <div className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden sticky top-4">
+                  <div className="p-3 bg-blue-50 border-b border-blue-200">
+                    <h4 className="font-medium text-blue-900 flex items-center gap-2">
+                      <Edit3 size={16} />
+                      Labeling Video
+                    </h4>
+                    {labelingVideo && (
+                      <p className="text-sm text-blue-700 mt-1">{labelingVideo.title}</p>
+                    )}
+                  </div>
                   
-                  {renderDualVideoPlayer(video, index)}
-                </article>
-              ))}
+                  {labelingVideo ? (
+                    <div className="p-3">
+                      {/* Video Player */}
+                      <div className="aspect-video mb-4">
+                        {renderVideoPlayerOnly(labelingVideo)}
+                      </div>
+                      
+                      {/* Comments Section - Compact */}
+                      {renderCompactCommentSection(labelingVideo)}
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center text-gray-500">
+                      <Edit3 size={32} className="mx-auto mb-2 text-gray-400" />
+                      <p>Select a video for labeling</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
         
-        {layout === 'grid' && sessionData && sessionData.videos.length >= 3 && (
-          <div className="w-full max-w-[1600px] mx-auto space-y-6">
-            {/* Global Sync Control */}
-            <div className="flex justify-center" role="toolbar" aria-label="Video synchronization controls">
-              <button
-                type="button"
-                onClick={() => {
-                  // Sync all videos to the first video's current time
-                  const firstVideo = sessionData.videos[0];
-                  syncVideosToReference(firstVideo);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-                aria-pressed="false"
-              >
-                <Zap size={16} />
-                Sync Videos
-              </button>
-              <button
-                type="button"
-                className="ml-2 p-2 text-gray-500 hover:text-gray-700"
-                title="Keyboard shortcuts: Space=play/pause, ←/→=seek, ↑/↓=volume"
-                aria-label="Show keyboard shortcuts"
-              >
-                <Info size={16} />
-              </button>
-              </div>
-
-            {/* 3-Video Grid */}
-            <div className="three-video-grid grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 lg:gap-6">
-              {sessionData.videos.slice(0, 3).map((video, index) => (
-                <article 
-                  key={video.title} 
-                  className={`video-card animate-fade-in-up ${
-                    index === 2 ? 'lg:col-span-2 2xl:col-span-1' : ''
-                  }`}
-                  role="region" 
-                  aria-labelledby={`grid-video${index + 1}-title`}
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <header>
-                    <h2 id={`grid-video${index + 1}-title`} className="sr-only">{video.title} Video Player</h2>
-                  </header>
-                  
-                  {renderGridVideoPlayer(video, index)}
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Global Floating Video List Sidebar */}
         {sessionData && (() => {

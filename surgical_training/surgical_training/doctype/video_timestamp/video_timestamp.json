@@ -26,7 +26,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Video",
-   "options": "Video",
+   "options": "Session Video",
    "reqd": 1
   },
   {

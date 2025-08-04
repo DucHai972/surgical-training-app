@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useFrappeGetCall, useFrappeAuth, useFrappePostCall } from 'frappe-react-sdk';
+import { Link, useNavigate } from 'react-router-dom';
+import { useFrappeGetCall, useFrappePostCall } from 'frappe-react-sdk';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { getDisplayRoles } from '../utils/roleUtils';
+import { useUserRoles } from '../hooks/useUserRoles';
 import { Button } from '../components/ui/button';
-import { BarChart3, Users, MessageSquare, Clock, Activity, ChevronRight, User, TrendingUp, Eye, FileText, AlertCircle, CheckCircle, UserPlus, Settings, X } from 'lucide-react';
+import { BarChart3, Users, MessageSquare, Clock, Activity, ChevronRight, User, TrendingUp, Eye, FileText, AlertCircle, CheckCircle, UserPlus, Settings, X, ArrowLeft, ShieldAlert } from 'lucide-react';
 import Navbar from '../components/Navbar';
 
 interface Session {
@@ -48,6 +50,7 @@ interface SessionAssignment {
 }
 
 const Analytics = () => {
+  const navigate = useNavigate();
   const [timeframe, setTimeframe] = useState<'week' | 'month' | 'year'>('month');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [sessionsWithComments, setSessionsWithComments] = useState<SessionWithComments[]>([]);
@@ -58,50 +61,24 @@ const Analytics = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [assignments, setAssignments] = useState<SessionAssignment[]>([]);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
-  const { currentUser: authUser } = useFrappeAuth();
-
-  // Check if user is admin - only admin can access analytics
-  const isAdmin = authUser === 'administrator@gmail.com';
+  // Use the reusable role hook
+  const { 
+    userRoles, 
+    rolesError, 
+    hasAdmin, 
+    currentUser: authUser, 
+    isReady: rolesReady 
+  } = useUserRoles();
   
-  if (!authUser) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Navbar currentPage="analytics" />
-        <div className="flex flex-col items-center justify-center h-64">
-          <div className="text-center">
-            <h3 className="text-2xl font-bold text-gray-900 mb-2">Please Log In</h3>
-            <p className="text-gray-600">You need to log in to access analytics.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Fallback: Use hardcoded admin check if API fails
+  const fallbackAdminCheck = authUser === 'administrator@gmail.com' || authUser === 'Administrator';
 
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Navbar currentPage="analytics" />
-        <div className="flex flex-col items-center justify-center h-64">
-          <div className="text-center">
-            <div className="h-24 w-24 rounded-full bg-red-100 flex items-center justify-center mb-6 mx-auto">
-              <AlertCircle size={40} className="text-red-600" />
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h3>
-            <p className="text-gray-600 mb-4">You don't have permission to access the analytics dashboard.</p>
-            <p className="text-sm text-gray-500">Only administrators can view this page.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Fetch sessions data
+  // Fetch sessions data - always call this hook
   const { data: sessionsData } = useFrappeGetCall(
     'surgical_training.api.session.get_sessions'
   );
 
-  // API calls for session assignments
-
+  // API calls for session assignments - always call these hooks
   const { call: bulkAssignSessions } = useFrappePostCall(
     'surgical_training.api.session_assignment.bulk_assign_sessions'
   );
@@ -110,10 +87,13 @@ const Analytics = () => {
     'surgical_training.api.session_assignment.remove_session_assignment'
   );
 
-  // Fetch users and assignments
+  // Use hasAdmin from the hook, with fallback
+  const hasAdministratorAccess = hasAdmin || fallbackAdminCheck;
+  
+  // Fetch users and assignments - moved to top to avoid hooks order violations
   useEffect(() => {
     const fetchUsersAndAssignments = async () => {
-      if (!isAdmin) return;
+      if (!hasAdministratorAccess) return;
       
       try {
         // Fetch all users
@@ -141,7 +121,195 @@ const Analytics = () => {
     };
 
     fetchUsersAndAssignments();
-  }, [isAdmin]);
+  }, [hasAdministratorAccess]);
+
+  // Fetch individual session details and comments - moved to top
+  useEffect(() => {
+    const fetchSessionsWithComments = async () => {
+      if (!sessionsData || !sessionsData.message || sessionsData.message.message !== 'Success') {
+        return;
+      }
+
+      const sessions = sessionsData.message.data;
+      const sessionsWithCommentsData: SessionWithComments[] = [];
+
+      for (const session of sessions) {
+        try {
+          const response = await fetch(
+            `/api/method/surgical_training.api.session.get_session_details?session_name=${encodeURIComponent(session.name)}`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          const result = await response.json();
+          
+          if (result && result.message && result.message.message === 'Success') {
+            const sessionData = result.message.data;
+            const comments = sessionData.comments || [];
+            
+            // Calculate analytics
+            const uniqueUsers = new Set(comments.map((c: Comment) => c.doctor)).size;
+            const videos = sessionData.videos || [];
+            const avgCommentsPerVideo = videos.length > 0 ? comments.length / videos.length : 0;
+            const lastActivity = comments.length > 0 
+              ? new Date(Math.max(...comments.map((c: Comment) => new Date(c.created_at).getTime()))).toISOString()
+              : session.session_date;
+
+            sessionsWithCommentsData.push({
+              ...session,
+              comments,
+              commentCount: comments.length,
+              uniqueUsers,
+              avgCommentsPerVideo,
+              lastActivity
+            });
+          }
+        } catch (error) {
+          console.error(`Error fetching data for session ${session.name}:`, error);
+          // Add session with empty comments if fetch fails
+          sessionsWithCommentsData.push({
+            ...session,
+            comments: [],
+            commentCount: 0,
+            uniqueUsers: 0,
+            avgCommentsPerVideo: 0,
+            lastActivity: session.session_date
+          });
+        }
+      }
+
+      setSessionsWithComments(sessionsWithCommentsData);
+      setLoading(false);
+    };
+
+    if (sessionsData && hasAdministratorAccess) {
+      fetchSessionsWithComments();
+    }
+  }, [sessionsData, hasAdministratorAccess]);
+
+  // Debug: log current user and role status
+  console.log('Analytics Debug:', { 
+    authUser, 
+    userRoles, 
+    rolesError: rolesError?.message,
+    fallbackAdminCheck,
+    hasAdministratorAccess,
+    hasAdmin,
+    rolesReady
+  });
+  
+  if (!authUser) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar currentPage="analytics" />
+        <div className="flex flex-col items-center justify-center h-64">
+          <div className="text-center">
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">Please Log In</h3>
+            <p className="text-gray-600">You need to log in to access analytics.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show role access error if user doesn't have administrator access
+  if (rolesReady && !hasAdministratorAccess) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar currentPage="analytics" />
+        
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-24 w-24 rounded-full bg-red-100 mb-6">
+              <ShieldAlert className="h-12 w-12 text-red-600" />
+            </div>
+            
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              Access Restricted
+            </h1>
+            
+            <p className="text-lg text-gray-600 mb-6">
+              You don't have the required permissions to access the Analytics dashboard.
+            </p>
+            
+            <div className="bg-white rounded-lg shadow-md p-6 mb-8 text-left max-w-2xl mx-auto">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <User className="h-5 w-5 mr-2 text-blue-600" />
+                Your Current Access
+              </h3>
+              
+              <div className="space-y-3">
+                <div>
+                  <span className="text-sm font-medium text-gray-700">User:</span>
+                  <span className="text-sm text-gray-900 ml-2">{authUser}</span>
+                </div>
+                
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Current Roles:</span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {userRoles.length > 0 ? (
+                      getDisplayRoles(userRoles).map((role, index) => (
+                        <span
+                          key={index}
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${role.color}`}
+                        >
+                          {role.name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        Guest
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="pt-3 border-t border-gray-200">
+                  <span className="text-sm font-medium text-red-700">Required Role:</span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      Admin
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                To access this page, you need one of the administrator roles listed above. 
+                Please contact your administrator to request the appropriate permissions.
+              </p>
+              
+              <Button 
+                onClick={() => navigate('/dashboard')}
+                className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 mx-auto"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while fetching roles
+  if (!rolesReady) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar currentPage="analytics" />
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   // Assignment handlers
   const handleAssignSessions = async () => {
@@ -217,73 +385,6 @@ const Analytics = () => {
     );
   };
 
-  // Fetch individual session details and comments
-  useEffect(() => {
-    const fetchSessionsWithComments = async () => {
-      if (!sessionsData || !sessionsData.message || sessionsData.message.message !== 'Success') {
-        return;
-      }
-
-      const sessions = sessionsData.message.data;
-      const sessionsWithCommentsData: SessionWithComments[] = [];
-
-      for (const session of sessions) {
-        try {
-          const response = await fetch(
-            `/api/method/surgical_training.api.session.get_session_details?session_name=${encodeURIComponent(session.name)}`,
-            {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-          
-          const result = await response.json();
-          
-          if (result && result.message && result.message.message === 'Success') {
-            const sessionData = result.message.data;
-            const comments = sessionData.comments || [];
-            
-            // Calculate analytics
-            const uniqueUsers = new Set(comments.map((c: Comment) => c.doctor)).size;
-            const videos = sessionData.videos || [];
-            const avgCommentsPerVideo = videos.length > 0 ? comments.length / videos.length : 0;
-            const lastActivity = comments.length > 0 
-              ? new Date(Math.max(...comments.map((c: Comment) => new Date(c.created_at).getTime()))).toISOString()
-              : session.session_date;
-
-            sessionsWithCommentsData.push({
-              ...session,
-              comments,
-              commentCount: comments.length,
-              uniqueUsers,
-              avgCommentsPerVideo,
-              lastActivity
-            });
-          }
-        } catch (error) {
-          console.error(`Error fetching data for session ${session.name}:`, error);
-          // Add session with empty comments if fetch fails
-          sessionsWithCommentsData.push({
-            ...session,
-            comments: [],
-            commentCount: 0,
-            uniqueUsers: 0,
-            avgCommentsPerVideo: 0,
-            lastActivity: session.session_date
-          });
-        }
-      }
-
-      setSessionsWithComments(sessionsWithCommentsData);
-      setLoading(false);
-    };
-
-    if (sessionsData) {
-      fetchSessionsWithComments();
-    }
-  }, [sessionsData]);
 
   // Calculate overall statistics
   const totalComments = sessionsWithComments.reduce((sum, session) => sum + session.commentCount, 0);

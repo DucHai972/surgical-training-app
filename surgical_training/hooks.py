@@ -242,6 +242,15 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+# Patches
+# -------
+# Patches to be executed during migration
+patches = [
+    # "surgical_training.patches.v1_0.migrate_video_to_session_video"  # Disabled - DocType doesn't exist
+    "surgical_training.patches.create_role_administrator",
+    "surgical_training.patches.fix_role_administrator"
+]
+
 
 website_route_rules = [
     {'from_route': '/surgical_training/<path:app_path>', 'to_route': 'frontend'},
@@ -249,17 +258,54 @@ website_route_rules = [
 ]
 
 # API Whitelisted Methods
-whitelisted_methods = {
-    "surgical_training.api.evaluation.add_evaluation": {
-        "methods": ["POST"]
-    },
-    "surgical_training.api.session.get_sessions": {
-        "methods": ["GET"]
-    },
-    "surgical_training.api.session.get_session_details": {
-        "methods": ["GET"]
-    },
-    "surgical_training.api.comment.get_custom_templates": {
-        "methods": ["GET"]
-    }
+whitelisted_methods = [
+    "surgical_training.api.session.get_sessions",
+    "surgical_training.api.session.get_session_details", 
+    "surgical_training.api.comment.get_custom_templates",
+    "surgical_training.api.video.serve_video_file",
+    "surgical_training.api.video.serve_video",
+    "surgical_training.api.video_management.create_fallback_video",
+    "surgical_training.api.video_management.list_available_videos", 
+    "surgical_training.api.video_management.auto_fix_missing_videos",
+    "surgical_training.api.user.get_user_profile",
+    "surgical_training.api.user.get_user_roles",
+    "surgical_training.api.user.get_user_profile_with_roles",
+    "surgical_training.api.user.setup_role_administrator",
+    "surgical_training.api.user.update_user_profile",
+    "surgical_training.api.user.change_password",
+    "surgical_training.api.user.get_user_preferences",
+    "surgical_training.api.user.update_user_preferences",
+    "surgical_training.api.user.upload_user_avatar",
+    "surgical_training.api.user.get_user_stats",
+    "surgical_training.api.notification.get_user_notifications",
+    "surgical_training.api.notification.mark_notification_read",
+    "surgical_training.api.notification.mark_all_notifications_read",
+    "surgical_training.api.notification.create_notification",
+    "surgical_training.api.notification.delete_notification",
+    "surgical_training.api.notification.get_notification_count",
+    "surgical_training.api.comment_new.add_comment",
+    "surgical_training.api.comment_new.get_comments_by_video",
+    "surgical_training.api.comment_new.update_comment",
+    "surgical_training.api.comment_new.delete_comment",
+    "surgical_training.api.comment_new.get_user_permissions",
+    "surgical_training.api.comment_new.get_comment_templates",
+    "surgical_training.api.comment_new.create_comment_template",
+    "surgical_training.api.doctor_session.get_doctor_sessions",
+    "surgical_training.api.doctor_session.update_session_status",
+    "surgical_training.api.doctor_session.get_session_history",
+    "surgical_training.api.doctor_session.get_session_comments",
+    "surgical_training.api.doctor_session.get_doctor_dashboard_stats",
+    "surgical_training.api.user_activity.get_user_activity_history",
+    "surgical_training.api.user_activity.get_user_activity_stats"
+]
+
+# Permission hooks for row-level security
+permission_query_conditions = {
+    "Video Comment": "surgical_training.surgical_training.doctype.video_comment.video_comment.get_permission_query_conditions",
+    "Session Assignment": "surgical_training.surgical_training.doctype.session_assignment.session_assignment.get_permission_query_conditions"
+}
+
+has_permission = {
+    "Video Comment": "surgical_training.surgical_training.doctype.video_comment.video_comment.has_permission",
+    "Session Assignment": "surgical_training.surgical_training.doctype.session_assignment.session_assignment.has_permission"
 }

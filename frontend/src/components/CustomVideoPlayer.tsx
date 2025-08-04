@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2, MessageSquare, Clock, User, AlertTriangle, CheckCircle, Minus, BarChart, ZoomIn, ZoomOut, RotateCcw, Scissors, Plus, Edit, Trash2, Save, X } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2, MessageSquare, Clock, AlertTriangle, CheckCircle, Minus, BarChart, ZoomIn, ZoomOut, RotateCcw, Scissors, Edit, Trash2 } from 'lucide-react';
 
 interface Comment {
   name: string;
@@ -457,8 +457,14 @@ const CustomVideoPlayer = ({
       });
   };
 
-  // Ensure the filename is properly URI-encoded (parentheses, spaces, etc.)
+  // For API endpoints, use the URL as-is to avoid double encoding
   const encodedSrc = React.useMemo(() => {
+    // If it's an API endpoint, don't encode it
+    if (src.includes('/api/method/')) {
+      return src;
+    }
+    
+    // For regular file paths, apply encoding as before
     try {
       const lastSlash = src.lastIndexOf('/');
       if (lastSlash === -1) return encodeURI(src);
@@ -519,6 +525,8 @@ const CustomVideoPlayer = ({
 
     let videoDuration = videoRef.current.duration;
 
+
+
     // Some video sources (e.g. streams) may report Infinity or 0. Attempt to derive a usable
     // duration from the seekable range instead.
     if (!videoDuration || !isFinite(videoDuration)) {
@@ -528,18 +536,21 @@ const CustomVideoPlayer = ({
           videoDuration = seekable.end(seekable.length - 1);
         }
       } catch (err) {
-        // Gracefully ignore – will fall back to 0 below
+        console.warn('Error getting seekable range:', err);
       }
     }
 
     if (videoDuration && isFinite(videoDuration) && videoDuration > 0) {
       setDuration(videoDuration);
+    } else {
+      console.warn('Invalid duration detected:', videoDuration);
     }
   };
 
   const handleSeek = (time: number) => {
     if (videoRef.current) {
-      videoRef.current.currentTime = time;
+      const video = videoRef.current;
+      video.currentTime = time;
       onSeek(time);
     }
   };
@@ -679,30 +690,19 @@ const CustomVideoPlayer = ({
     }
   };
 
-  // Calculate duration spans for comments using individual comment durations
+  // Calculate duration spans for comments using individual comment durations - ALLOW OVERLAPS
   const getCommentDurations = () => {
     if (comments.length === 0) return [];
     
     // Sort comments by timestamp
     const sortedComments = [...comments].sort((a, b) => a.timestamp - b.timestamp);
     
-    return sortedComments.map((comment, index) => {
+    return sortedComments.map((comment) => {
       const startTime = comment.timestamp;
       const commentDuration = comment.duration || 30; // Use comment's individual duration, fallback to 30s
-      const nextComment = sortedComments[index + 1];
       
-      // Calculate end time
-      let endTime: number;
-      if (nextComment) {
-        // If next comment is within this comment's duration, end before it starts
-        const timeToNext = nextComment.timestamp - startTime;
-        endTime = timeToNext < commentDuration ? 
-          nextComment.timestamp - 2 : // 2 second gap before next comment
-          startTime + commentDuration;
-      } else {
-        // Last comment or no next comment - use comment duration or video end
-        endTime = Math.min(startTime + commentDuration, duration);
-      }
+      // Always use full duration - allow overlaps
+      const endTime = Math.min(startTime + commentDuration, duration);
       
       return {
         ...comment,
@@ -713,7 +713,9 @@ const CustomVideoPlayer = ({
     });
   };
 
-  // Render modern duration-based annotations on timeline
+
+
+  // Render modern duration-based annotations on timeline with overlap support
   const renderAnnotations = () => {
     if (duration === 0) return null;
 
@@ -730,20 +732,20 @@ const CustomVideoPlayer = ({
         const startPosition = timeToTimelinePosition(comment.startTime);
         const endPosition = timeToTimelinePosition(comment.endTime);
         const spanWidth = Math.max(0, endPosition - startPosition);
-      const commentType = getCommentType(comment);
-      const colorClass = getCommentColor(commentType);
-      const isActive = currentTime >= comment.startTime && currentTime <= comment.endTime;
-      
-      return (
-        <div
-          key={comment.name}
-          className="absolute z-30"
-          style={{ 
-            left: `${startPosition}%`,
-            width: `${spanWidth}%`,
-            top: '8px'
-          }}
-        >
+        const commentType = getCommentType(comment);
+        const colorClass = getCommentColor(commentType);
+        const isActive = currentTime >= comment.startTime && currentTime <= comment.endTime;
+        
+        return (
+          <div
+            key={comment.name}
+            className="absolute z-30"
+            style={{ 
+              left: `${startPosition}%`,
+              width: `${spanWidth}%`,
+              top: '8px'
+            }}
+          >
           {/* Compact Duration Bar */}
           <div
             className={`relative cursor-pointer transition-all duration-300 ${colorClass} border rounded shadow-sm overflow-hidden group ${
@@ -829,7 +831,7 @@ const CustomVideoPlayer = ({
               {/* Compact Individual Timeline */}
               <div className="relative">
                 <div 
-                  className="relative h-5 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded shadow-inner border border-gray-600 cursor-pointer transition-all duration-200"
+                  className="relative h-6 bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 rounded shadow-inner border border-gray-600 cursor-pointer transition-all duration-200"
                   onClick={(e) => {
                     if (duration > 0 && isFinite(duration)) {
                       const rect = e.currentTarget.getBoundingClientRect();
@@ -1021,17 +1023,29 @@ const CustomVideoPlayer = ({
               errorMessage: e.currentTarget.error?.message
             });
             
-            // Show user-friendly error message
+            // Show user-friendly error message with specific guidance
             let errorMessage = 'Failed to load video';
+            let errorDetails = '';
+            
             if (e.currentTarget.error?.code === 4) {
               errorMessage = 'Video format not supported or file corrupted';
+              errorDetails = 'This video file cannot be played. Please check the file format or upload a new video.';
             } else if (e.currentTarget.networkState === 3) {
-              errorMessage = 'Network error loading video';
+              errorMessage = 'Network error loading video - Check if video API is accessible';
+              errorDetails = 'Unable to connect to the video server. Please check your internet connection.';
             } else if (e.currentTarget.error?.code === 3) {
               errorMessage = 'Video file not found or access denied';
+              errorDetails = 'The video file does not exist on the server. This may be due to a missing upload or incorrect filename in the session configuration.';
             }
             
-            setVideoError(errorMessage);
+            // Check if this is a missing file based on the src URL
+            if (src.includes('6660998144676.mp4') || src.includes('.mp4')) {
+              const filename = src.split('filename=')[1] || src.split('/').pop();
+              errorMessage = 'Video file not found on server';
+              errorDetails = `The video file "${filename}" does not exist. Please upload the video file or contact your administrator to fix the session configuration.`;
+            }
+            
+            setVideoError(errorMessage + (errorDetails ? `\n${errorDetails}` : ''));
           }}
 
           controls={false}
@@ -1067,11 +1081,25 @@ const CustomVideoPlayer = ({
         {/* Error Overlay */}
         {videoError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50">
-            <div className="text-center p-8 max-w-md">
+            <div className="text-center p-8 max-w-lg">
               <AlertTriangle size={48} className="mx-auto text-red-400 mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">Video Load Error</h3>
-              <p className="text-gray-300 mb-4">{videoError}</p>
-              <p className="text-sm text-gray-400">Source: {src}</p>
+              <div className="text-gray-300 mb-4 space-y-2">
+                {videoError.split('\n').map((line, index) => (
+                  <p key={index} className={index === 0 ? 'font-medium' : 'text-sm'}>
+                    {line}
+                  </p>
+                ))}
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-3 mb-4">
+                <p className="text-xs text-gray-400 font-mono break-all">
+                  Source: {src}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Video: {title}
+                </p>
+              </div>
+              <div className="flex gap-3 justify-center">
               <button
                 onClick={() => {
                   setVideoError(null);
@@ -1079,10 +1107,28 @@ const CustomVideoPlayer = ({
                     videoRef.current.load();
                   }
                 }}
-                className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200"
               >
                 Retry
               </button>
+                {src.includes('6660998144676.mp4') && (
+                  <button
+                    onClick={() => {
+                      // Suggest fallback to Camera 1
+                      const fallbackSrc = src.replace('6660998144676.mp4', 'Compressed_cam1.mp4');
+                      console.log('🔄 Attempting fallback to:', fallbackSrc);
+                      if (videoRef.current) {
+                        videoRef.current.src = fallbackSrc;
+                        videoRef.current.load();
+                        setVideoError(null);
+                      }
+                    }}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200"
+                  >
+                    Use Fallback Video
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1091,8 +1137,8 @@ const CustomVideoPlayer = ({
         {/* Removed seeking overlay as per edit hint */}
         
         {/* Video Overlay Info */}
-        <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg backdrop-blur-sm">
-          <div className="text-sm font-medium">{title}</div>
+        <div className="absolute top-2 left-2 bg-black/70 text-white px-2 py-1 rounded-md backdrop-blur-sm">
+          <div className="text-xs font-medium">{title}</div>
           <div className="text-xs text-white/80">{formatTime(currentTime)} / {formatTime(duration)}</div>
         </div>
 
@@ -1105,11 +1151,11 @@ const CustomVideoPlayer = ({
           const progress = ((currentTime - currentActiveComment.startTime) / (currentActiveComment.endTime - currentActiveComment.startTime)) * 100;
           
           return (
-            <div className="absolute bottom-2 left-2 right-2 bg-black/90 backdrop-blur-sm text-white p-2 rounded-lg border border-white/20 shadow-lg z-50">
+            <div className="absolute bottom-1 left-1 right-1 bg-black/90 backdrop-blur-sm text-white p-1.5 rounded-md border border-white/20 shadow-lg z-50">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getCommentColor(commentType).split(' ')[0]}`}></div>
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getCommentColor(commentType).split(' ')[0]}`}></div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-0.5">
                     <span className="font-medium text-xs truncate">{currentActiveComment.doctor_name || currentActiveComment.doctor}</span>
                     <span className="text-xs text-gray-400 font-mono">
                       {formatTime(currentActiveComment.startTime)}-{formatTime(currentActiveComment.endTime)}
@@ -1118,13 +1164,13 @@ const CustomVideoPlayer = ({
                       {Math.round((currentActiveComment.endTime - currentTime))}s
                     </span>
                   </div>
-                  <div className="text-xs text-gray-200 mb-1 line-clamp-2">
+                  <div className="text-xs text-gray-200 mb-0.5 line-clamp-1">
                     {currentActiveComment.comment_text}
                   </div>
                   {/* Compact progress bar */}
-                  <div className="w-full bg-gray-700/50 rounded-full h-1">
+                  <div className="w-full bg-gray-700/50 rounded-full h-0.5">
                     <div 
-                      className={`h-1 rounded-full transition-all duration-300 ${getCommentColor(commentType).split(' ')[0]}`}
+                      className={`h-0.5 rounded-full transition-all duration-300 ${getCommentColor(commentType).split(' ')[0]}`}
                       style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
                     ></div>
                   </div>
@@ -1134,10 +1180,10 @@ const CustomVideoPlayer = ({
                     e.stopPropagation();
                     handleSeek(currentActiveComment.endTime);
                   }}
-                  className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
+                  className="text-gray-400 hover:text-white transition-colors p-0.5 rounded hover:bg-white/10"
                   title="Skip"
                 >
-                  <SkipForward size={12} />
+                  <SkipForward size={10} />
                 </button>
               </div>
             </div>
@@ -1149,65 +1195,65 @@ const CustomVideoPlayer = ({
           className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity duration-300 cursor-pointer"
           onClick={() => onPlayPause(!isPlaying)}
         >
-          <div className="bg-black/50 rounded-full p-4 backdrop-blur-sm">
+          <div className="bg-black/50 rounded-full p-3 backdrop-blur-sm">
             {isPlaying ? (
-              <Pause size={32} className="text-white" />
+              <Pause size={24} className="text-white" />
             ) : (
-              <Play size={32} className="text-white" />
+              <Play size={24} className="text-white" />
             )}
           </div>
         </div>
       </div>
 
       {/* Custom Controls */}
-      <div className="bg-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="bg-gray-800 px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
           {/* Rewind */}
           <button
             onClick={skipBackward}
-            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[36px] min-w-[36px] flex items-center justify-center"
             title="Skip backward 10s"
           >
-            <SkipBack size={24} />
+            <SkipBack size={16} />
           </button>
 
           {/* Play/Pause */}
           <button
             onClick={() => onPlayPause(!isPlaying)}
-            className="p-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
+            className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200 min-h-[36px] min-w-[36px] flex items-center justify-center"
             title={isPlaying ? "Pause" : "Play"}
           >
-            {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
           </button>
 
           {/* Fast Forward */}
           <button
             onClick={skipForward}
-            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[36px] min-w-[36px] flex items-center justify-center"
             title="Skip forward 10s"
           >
-            <SkipForward size={24} />
+            <SkipForward size={16} />
           </button>
 
           {/* Playback Speed */}
           <button
             onClick={handlePlaybackRateChange}
-            className="px-6 py-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-lg font-medium transition-colors duration-200 min-h-[56px] flex items-center justify-center"
+            className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors duration-200 min-h-[36px] flex items-center justify-center"
             title="Playback speed"
           >
             {playbackRate}x
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Time Display */}
-          <span className="text-white font-mono text-lg font-medium">
+          <span className="text-white font-mono text-sm font-medium">
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
 
           {/* Volume */}
-          <div className="flex items-center gap-3">
-            <Volume2 size={24} className="text-gray-300" />
+          <div className="flex items-center gap-2">
+            <Volume2 size={16} className="text-gray-300" />
             <input
               type="range"
               min="0"
@@ -1215,10 +1261,10 @@ const CustomVideoPlayer = ({
               step="0.1"
               value={volume}
               onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-              className="w-24 h-2 bg-gray-600 rounded-full appearance-none cursor-pointer touch-manipulation"
+              className="w-16 h-1 bg-gray-600 rounded-full appearance-none cursor-pointer touch-manipulation"
               style={{
                 WebkitAppearance: 'none',
-                height: '8px',
+                height: '6px',
               }}
             />
           </div>
@@ -1226,18 +1272,18 @@ const CustomVideoPlayer = ({
           {/* Fullscreen */}
           <button
             onClick={toggleFullscreen}
-            className="p-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[56px] min-w-[56px] flex items-center justify-center"
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors duration-200 min-h-[36px] min-w-[36px] flex items-center justify-center"
             title="Fullscreen"
           >
-            <Maximize2 size={24} />
+            <Maximize2 size={16} />
           </button>
         </div>
       </div>
 
       {/* Modern Interactive Timeline - REDESIGNED FOR COMPACT VIEW */}
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-4 border-t border-gray-700">
+      <div className="bg-gradient-to-b from-gray-800 to-gray-900 p-2 border-t border-gray-700">
         {/* Compact Header */}
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Clock size={16} className="text-blue-400" />

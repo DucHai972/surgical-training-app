@@ -3,11 +3,11 @@ import { useParams, Link } from 'react-router-dom';
 import { useFrappeGetCall, useFrappePostCall, useFrappeAuth } from 'frappe-react-sdk';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/button';
-
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import VideoList from '../components/VideoList';
 import CustomVideoPlayer from '../components/CustomVideoPlayer';
 
-import { ArrowLeft, MessageSquare, Clock, Video, Download, Send, Eye, Calendar, Users, FileText, Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, ClipboardCheck, Target, Maximize2, Columns, Grid, AlertTriangle, GraduationCap, Play, Square } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Clock, User, Video, Download, Send, Eye, Calendar, Users, FileText, Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, ClipboardCheck, Target, Maximize2, Columns, Grid } from 'lucide-react';
 
 // TypeScript declarations for Web Speech API
 declare global {
@@ -162,8 +162,8 @@ const SessionDetail = () => {
   const [commentToDelete, setCommentToDelete] = useState<{name: string, text: string} | null>(null);
   const [editingComment, setEditingComment] = useState<{name: string, text: string} | null>(null);
   const [editCommentText, setEditCommentText] = useState('');
-  const [editingDuration, setEditingDuration] = useState<string | null>(null);
-  const [editDurationValue, setEditDurationValue] = useState('');
+  const [editingDuration, setEditingDuration] = useState<{commentName: string, duration: number} | null>(null);
+  const [isUpdatingDuration, setIsUpdatingDuration] = useState(false);
   const [customTemplates, setCustomTemplates] = useState<CustomTemplate[]>([]);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [newTemplate, setNewTemplate] = useState({
@@ -186,36 +186,8 @@ const SessionDetail = () => {
   });
   const [evaluationExpanded, setEvaluationExpanded] = useState<{[key: string]: boolean}>({});
   const [activeLabels, setActiveLabels] = useState<ActiveLabel[]>([]);
-  const [labelMode, setLabelMode] = useState<'duration' | 'start_end'>('start_end'); // Default to start/end mode
-  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
-  const [labelStatusMessage, setLabelStatusMessage] = useState('');
-  const [isbarValue, setIsbarValue] = useState('');
+  const [labelMode, setLabelMode] = useState<'duration' | 'start_end'>('duration'); // Default to duration mode
   const videoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
-
-  // Debug and remove unwanted spacer elements
-  useEffect(() => {
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) { // Element node
-            const element = node as HTMLElement;
-            if (element.style.minHeight && 
-                (element.classList.contains('h-0') || element.style.minHeight.includes('px'))) {
-              console.warn('Spacer div detected and removed:', element);
-              element.remove(); // Immediate removal
-            }
-          }
-        });
-      });
-    });
-
-    const container = document.querySelector('.comment-list-container');
-    if (container) {
-      observer.observe(container, { childList: true, subtree: true });
-    }
-
-    return () => observer.disconnect();
-  }, [comments]); // Re-run when comments change
 
   // Get current user info
   const { currentUser: authUser } = useFrappeAuth();
@@ -356,7 +328,7 @@ const SessionDetail = () => {
   );
 
   // API for updating comments
-  const { call: updateComment } = useFrappePostCall(
+  const { call: updateComment, loading: isUpdatingComment } = useFrappePostCall(
     'surgical_training.api.comment.update_comment'
   );
 
@@ -610,24 +582,8 @@ const SessionDetail = () => {
       // Handle the nested structure from Frappe API
       const responseData = apiResponse.message;
       
-      console.log('🎬 FRONTEND SESSION DATA DEBUG:', responseData);
-      
       // Make sure responseData has the expected format
       if (responseData && responseData.message === 'Success' && responseData.data) {
-        console.log('🎬 FRONTEND: Received session data:', responseData.data);
-        console.log('🎬 FRONTEND: Videos array:', responseData.data.videos);
-        
-        // Log each video in detail
-        if (responseData.data.videos && Array.isArray(responseData.data.videos)) {
-          responseData.data.videos.forEach((video: Video, index: number) => {
-            console.log(`🎬 FRONTEND Video ${index + 1}:`, {
-              title: video.title,
-              video_file: video.video_file,
-              description: video.description
-            });
-          });
-        }
-        
         setSessionData(responseData.data);
         setComments(Array.isArray(responseData.data.comments) ? responseData.data.comments : []);
         
@@ -635,7 +591,6 @@ const SessionDetail = () => {
         if (responseData.data.videos && Array.isArray(responseData.data.videos) && responseData.data.videos.length > 0) {
           // Only set to first video if no current video is set, or if current video is not in the new data
           if (!currentVideo || !responseData.data.videos.find((v: Video) => v.title === currentVideo.title)) {
-            console.log('🎬 FRONTEND: Setting current video to:', responseData.data.videos[0]);
             setCurrentVideo(responseData.data.videos[0]);
           }
           
@@ -761,10 +716,6 @@ const SessionDetail = () => {
   };
 
   const handleVideoChange = (video: Video) => {
-    console.log('🎬 FRONTEND VIDEO CHANGE:', {
-      from: currentVideo ? { title: currentVideo.title, video_file: currentVideo.video_file } : null,
-      to: { title: video.title, video_file: video.video_file }
-    });
     setCurrentVideo(video);
     setLayout('single');
   };
@@ -824,7 +775,6 @@ const SessionDetail = () => {
 
     setActiveLabels(prev => [...prev, newLabel]);
     toast.success(`Label started at ${formatTime(videoState.currentTime)}`);
-    setLabelStatusMessage(`Label recording started at ${formatTime(videoState.currentTime)}`);
     
     // Clear the comment input
     handleCommentChange(videoTitle, '');
@@ -840,7 +790,7 @@ const SessionDetail = () => {
     if (!activeLabel) return;
 
     const endTime = videoState.currentTime;
-    const duration = Math.round(endTime - activeLabel.startTime);
+    const duration = endTime - activeLabel.startTime;
 
     if (duration <= 0) {
       toast.error('End time must be after start time');
@@ -865,7 +815,6 @@ const SessionDetail = () => {
         
         if (responseData.message === 'Success') {
           toast.success(`Label completed: ${formatTime(duration)} duration`);
-          setLabelStatusMessage(`Label completed with ${formatTime(duration)} duration`);
           
           // Remove the active label
           setActiveLabels(prev => prev.filter(label => label.id !== labelId));
@@ -889,6 +838,10 @@ const SessionDetail = () => {
 
   const getActiveLabelsForVideo = (videoTitle: string) => {
     return activeLabels.filter(label => label.videoTitle === videoTitle);
+  };
+
+  const hasActiveLabels = (videoTitle: string) => {
+    return activeLabels.some(label => label.videoTitle === videoTitle);
   };
 
   const handleAddComment = async (videoTitle: string, customTimestamp?: number, customDuration?: number, customCommentType?: string) => {
@@ -1021,64 +974,8 @@ const SessionDetail = () => {
   };
 
   const handleEditComment = (comment: Comment) => {
-    // Cancel any duration editing
-    setEditingDuration(null);
-    setEditDurationValue('');
-    
     setEditingComment({ name: comment.name, text: comment.comment_text });
     setEditCommentText(comment.comment_text);
-  };
-
-  // Handle duration editing
-  const handleEditDuration = (comment: Comment) => {
-    // Cancel any other editing
-    setEditingComment(null);
-    setEditCommentText('');
-    
-    setEditingDuration(comment.name);
-    setEditDurationValue(comment.duration ? comment.duration.toString() : '30');
-  };
-
-  const handleSaveDuration = async (commentName: string) => {
-    if (!editDurationValue) return;
-    
-    const durationSeconds = parseInt(editDurationValue);
-    if (isNaN(durationSeconds) || durationSeconds <= 0) {
-      toast.error('Please enter a valid duration in seconds');
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/method/surgical_training.api.comment.update_comment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          comment_name: commentName,
-          duration: durationSeconds
-        }),
-      });
-
-      const result = await response.json();
-      
-      if (result && result.message && result.message.message === 'Success') {
-        toast.success('Duration updated successfully');
-        setEditingDuration(null);
-        setEditDurationValue('');
-        await refreshSession();
-      } else {
-        toast.error('Failed to update duration');
-      }
-    } catch (error) {
-      console.error('Error updating duration:', error);
-      toast.error('Failed to update duration');
-    }
-  };
-
-  const handleCancelDurationEdit = () => {
-    setEditingDuration(null);
-    setEditDurationValue('');
   };
 
   const handleSaveComment = async () => {
@@ -1142,7 +1039,62 @@ const SessionDetail = () => {
     setEditCommentText('');
   };
 
+  const handleEditDuration = (comment: Comment) => {
+    setEditingDuration({ commentName: comment.name, duration: comment.duration || 30 });
+  };
 
+  const handleSaveDuration = async () => {
+    if (!editingDuration) return;
+
+    setIsUpdatingDuration(true);
+    try {
+      console.log('Updating duration for comment:', editingDuration.commentName, 'to:', editingDuration.duration);
+      
+      const response = await fetch('/api/method/surgical_training.api.comment.update_comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          comment_name: editingDuration.commentName,
+          duration: editingDuration.duration.toString()
+        })
+      });
+
+      console.log('Response status:', response.status);
+      const result = await response.json();
+      console.log('API Response:', result);
+      
+      // Handle Frappe API response structure properly
+      const apiResult = result.message || result;
+      
+      if (response.ok && apiResult.message === 'Success') {
+        console.log('Duration updated successfully!');
+        // Update local comments state
+        setComments(prevComments => 
+          prevComments.map(comment => 
+            comment.name === editingDuration.commentName 
+              ? { ...comment, duration: editingDuration.duration }
+              : comment
+          )
+        );
+        setEditingDuration(null);
+        alert('Duration updated successfully!');
+      } else {
+        // Handle error cases
+        const errorMessage = apiResult.error || apiResult.message || 'Failed to update duration';
+        console.error('Error updating duration:', errorMessage);
+        alert(`Failed to update duration: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error('Error updating duration:', error);
+      alert('Failed to update duration: Network error');
+    } finally {
+      setIsUpdatingDuration(false);
+    }
+  };
+
+  const handleCancelDurationEdit = () => {
+    setEditingDuration(null);
+  };
 
   // Custom Template Management Functions
   const handleCreateTemplate = async () => {
@@ -1430,104 +1382,18 @@ const SessionDetail = () => {
     return comment.comment_text.startsWith('[EVALUATION]');
   };
 
-  // Comment type categorization functions
-  const getCommentType = (comment: Comment) => {
-    // If comment has explicit type, use it
-    if (comment.comment_type) {
-      switch (comment.comment_type) {
-        case 'critical': return 'critical';
-        case 'positive': return 'positive';
-        case 'warning': case 'attention': return 'attention';
-        case 'teaching': case 'general': return 'teaching';
-        default: break;
-      }
-    }
-
-    // Fall back to text analysis
-    const text = comment.comment_text.toLowerCase();
-    
-    // Check for critical/negative indicators first (highest priority)
-    if (text.includes('❌') || text.includes('critical issue') || text.includes('critical') || 
-        text.includes('error') || text.includes('wrong') || text.includes('mistake') || 
-        text.includes('danger') || text.includes('unsafe') || text.includes('risk') ||
-        text.includes('immediately') || text.includes('stop') || text.includes('incorrect')) {
-      return 'critical';
-    }
-    
-    // Check for positive indicators
-    if (text.includes('👍') || text.includes('good') || text.includes('excellent') || 
-        text.includes('perfect') || text.includes('well done') || text.includes('correct') ||
-        text.includes('great') || text.includes('nice') || text.includes('proper')) {
-      return 'positive';
-    }
-    
-    // Check for warning/attention indicators
-    if (text.includes('⚠️') || text.includes('attention') || text.includes('careful') || 
-        text.includes('improve') || text.includes('consider') || text.includes('watch') ||
-        text.includes('note') || text.includes('adjust') || text.includes('modify')) {
-      return 'attention';
-    }
-
-    // Check for teaching indicators
-    if (text.includes('🎯') || text.includes('learning') || text.includes('technique') || 
-        text.includes('demonstrates') || text.includes('example') || text.includes('shows')) {
-      return 'teaching';
-    }
-    
-    // Default to positive for general comments
-    return 'positive';
+  // Helper function to format evaluation comment for display
+  const formatEvaluationDisplay = (commentText: string) => {
+    // Remove the [EVALUATION] marker and format for display
+    return commentText.replace('[EVALUATION]\n', '').trim();
   };
 
-  // Get badge config for comment type - WCAG AA compliant colors
-  const getCommentBadge = (type: string) => {
-    switch (type) {
-      case 'positive':
-        return {
-          label: 'Positive',
-          classes: 'bg-green-100 text-green-800',
-          dotClasses: 'bg-green-600'
-        };
-      case 'attention':
-        return {
-          label: 'Attention',
-          classes: 'bg-yellow-100 text-yellow-900', // Improved contrast: 6.2:1
-          dotClasses: 'bg-yellow-600'
-        };
-      case 'critical':
-        return {
-          label: 'Critical',
-          classes: 'bg-red-100 text-red-800',
-          dotClasses: 'bg-red-600'
-        };
-      case 'teaching':
-        return {
-          label: 'Teaching',
-          classes: 'bg-blue-100 text-blue-800',
-          dotClasses: 'bg-blue-600'
-        };
-      default:
-        return {
-          label: 'General',
-          classes: 'bg-gray-100 text-gray-800',
-          dotClasses: 'bg-gray-600'
-        };
+  const seekToTime = (videoTitle: string, timestamp: number) => {
+    const videoRef = videoRefs.current.get(videoTitle);
+    if (videoRef) {
+      videoRef.currentTime = timestamp;
     }
   };
-
-  // Toggle comment expansion
-  const toggleCommentExpansion = (commentId: string) => {
-    setExpandedComments(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(commentId)) {
-        newSet.delete(commentId);
-      } else {
-        newSet.add(commentId);
-      }
-      return newSet;
-    });
-  };
-
-
 
   // Filter comments by video title
   const getVideoComments = (videoTitle: string) => {
@@ -1647,63 +1513,6 @@ const SessionDetail = () => {
     }
   };
 
-  // Add handler to submit ISBAR evaluation as a comment
-  const handleSubmitIsbarEvaluation = async (videoTitle: string) => {
-    if (!annotationCommentType || isbarValue === '') return;
-    const isbarLabels: Record<string, string[]> = {
-      identification: [
-        'Requires direct prompting',
-        'After a hint',
-        'Information incomplete',
-        'Information complete',
-      ],
-      situation: [
-        'Unable to identify',
-        'After extended prompting',
-        'Fewer prompts needed',
-        'Unprompted',
-      ],
-      background: [
-        'Unstructured/non-relevant',
-        'Frequent clarification needed',
-        'Few questions needed',
-        'Comprehensive focused',
-      ],
-      assessment: [
-        'No logical assessment',
-        'After extended questioning',
-        'After minimal questioning',
-        'Without questioning',
-      ],
-      recommendation: [
-        'No clear recommendation',
-        'After extended questioning',
-        'After minimal questioning',
-        'Without questioning',
-      ],
-    };
-    const label = isbarLabels[annotationCommentType]?.[parseInt(isbarValue)] || '';
-    const isbarText = `[ISBAR] ${annotationCommentType.charAt(0).toUpperCase() + annotationCommentType.slice(1)}: ${isbarValue} - ${label}`;
-    
-    if (labelMode === 'start_end') {
-      // Start a label with ISBAR evaluation
-      handleStartLabel(videoTitle, isbarText, annotationCommentType);
-    } else {
-      // Add as regular comment
-      const currentTime = videoPlayerStates.get(videoTitle)?.currentTime || 0;
-      await addComment({
-        session: sessionName,
-        video_title: videoTitle,
-        timestamp: currentTime,
-        comment_text: isbarText,
-        duration: annotationDuration,
-        comment_type: annotationCommentType
-      });
-      await refreshSession();
-    }
-    setIsbarValue('');
-  };
-
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case 'active':
@@ -1820,535 +1629,6 @@ const SessionDetail = () => {
     );
   }
 
-  // Render a video player for dual-video mode with comments underneath
-  const renderDualVideoPlayer = (video: Video, index: number) => {
-    if (!video) return null;
-
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    
-    return (
-      <div className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden">
-        {/* Video Section */}
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{video.title}</h3>
-          
-          {/* Video Player Container */}
-          <div className="w-full mb-4">
-            <div className="relative aspect-video">
-              {(() => {
-                const videoSrc = video.video_file && video.video_file.trim() 
-                  ? video.video_file
-                  : '/files/placeholder.mp4';
-                
-                console.log(`🎥 FRONTEND VIDEO PLAYER RENDER:`, {
-                  title: video.title,
-                  raw_video_file: video.video_file,
-                  computed_src: videoSrc,
-                });
-                
-                return (
-                  <CustomVideoPlayer
-                    src={videoSrc}
-                    title={video.title}
-                    comments={videoComments.map(comment => ({
-                      ...comment,
-                      isEvaluation: isEvaluationComment(comment)
-                    }))}
-                    isPlaying={videoState.isPlaying}
-                    currentTime={videoState.currentTime}
-                    onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-                    onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-                    onSeek={(time) => handleSeek(video.title, time)}
-                  />
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Comments Panel */}
-        <section className="comments-panel" aria-labelledby={`comments${index + 1}-title`}>
-          <h3 id={`comments${index + 1}-title`} className="sr-only">Comments for {video.title}</h3>
-          
-          {/* Comment Form */}
-          <div className="comment-form bg-gray-50 p-4 space-y-3">
-            {/* Compact Grid for Form Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Labeling Mode Toggle */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Labeling Mode</label>
-                <div className="flex space-x-1 bg-white p-1 rounded-md border border-gray-200">
-                  <button
-                    onClick={() => setLabelMode('start_end')}
-                    className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                      labelMode === 'start_end'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Start/End
-                  </button>
-                  <button
-                    onClick={() => setLabelMode('duration')}
-                    className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                      labelMode === 'duration'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Duration
-                  </button>
-                </div>
-              </div>
-
-              {/* ISBAR Select */}
-              <div>
-                <select
-                  value={annotationCommentType}
-                  onChange={(e) => setAnnotationCommentType(e.target.value as any)}
-                  className="w-full px-3 py-1 text-sm border rounded"
-                >
-                  <option value="identification">🏥 Identification</option>
-                  <option value="situation">📊 Situation</option>
-                  <option value="background">📋 Background</option>
-                  <option value="assessment">🔍 Assessment</option>
-                  <option value="recommendation">💡 Recommendation</option>
-                  <option value="general">💬 General</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Comment Textarea */}
-            <div>
-              <textarea
-                className="w-full h-20 px-3 py-2 text-sm border rounded resize-none"
-                placeholder="Describe what you observe at this moment..."
-                value={videoPlayerStates.get(video.title)?.newComment || ''}
-                onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              />
-            </div>
-
-            {/* Quick Templates & Actions */}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated. Good hand positioning and instrument control.')}
-                className="px-3 py-1 bg-green-100 text-green-700 text-sm rounded hover:bg-green-200 transition-colors"
-              >
-                ✓ Positive
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '⚠️ Attention needed: Consider adjusting approach for better safety and precision.')}
-                className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm rounded hover:bg-yellow-200 transition-colors"
-              >
-                ⚠ Attention
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.')}
-                className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200 transition-colors"
-              >
-                ⚠ Critical
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '🎯 Key learning moment: This demonstrates proper technique for this procedure.')}
-                className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200 transition-colors"
-              >
-                📚 Teaching
-              </button>
-              
-              {/* Action Buttons */}
-              {labelMode === 'start_end' ? (
-                <>
-                  {/* Start Label Button - Always Available */}
-                  <button
-                    onClick={() => {
-                      const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                      if (comment) {
-                        handleStartLabel(video.title, comment, annotationCommentType);
-                      }
-                    }}
-                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
-                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    Start Label
-                  </button>
-                  
-                  {/* End Label Button - Available when there are active labels */}
-                  <button
-                    onClick={() => {
-                      const activeLabelsForVideo = getActiveLabelsForVideo(video.title);
-                      if (activeLabelsForVideo.length === 1) {
-                        // If only one active label, end it directly
-                        handleEndLabel(activeLabelsForVideo[0].id);
-                      } else if (activeLabelsForVideo.length > 1) {
-                        // If multiple active labels, end the most recent one
-                        const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
-                        handleEndLabel(mostRecentLabel.id);
-                      }
-                    }}
-                    disabled={getActiveLabelsForVideo(video.title).length === 0}
-                    className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:bg-gray-400 transition-colors"
-                    title={getActiveLabelsForVideo(video.title).length > 1 ? `End most recent of ${getActiveLabelsForVideo(video.title).length} active labels` : getActiveLabelsForVideo(video.title).length === 1 ? "End active label" : "No active labels to end"}
-                  >
-                    End Label {getActiveLabelsForVideo(video.title).length > 0 && `(${getActiveLabelsForVideo(video.title).length})`}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => {
-                    const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
-                    handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
-                  }}
-                  disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
-                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-                >
-                  Add Comment
-                </button>
-              )}
-              
-              <button
-                onClick={() => {
-                  handleCommentChange(video.title, '');
-                  setIsbarValue(''); // Also clear ISBAR value
-                }}
-                className="ml-auto px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Comments List */}
-          <div className="comments-list max-h-80 overflow-y-auto space-y-3 p-4">
-            {videoComments.length === 0 ? (
-              <div className="text-center py-8">
-                <MessageSquare size={32} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-500 text-sm">No comments yet</p>
-              </div>
-            ) : (
-              videoComments.map((comment, commentIndex) => {
-                const commentType = getCommentType(comment);
-                const badge = getCommentBadge(commentType);
-                const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                
-                return (
-                  <div key={`comment-${comment.name}-${commentIndex}`} className="comment-item bg-white border rounded-lg p-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
-                        {initials}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm">{doctorName}</span>
-                          <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
-                          <span className={`px-2 py-0.5 text-xs rounded ${badge.classes}`}>
-                            {badge.label}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-700 line-clamp-3">
-                          {comment.comment_text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      </div>
-    );
-  };
-
-  // Render a video player for grid mode with compact comments underneath
-  const renderGridVideoPlayer = (video: Video, index: number) => {
-    if (!video) return null;
-
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    
-    return (
-      <article className="grid-video-card bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden flex flex-col h-full">
-        {/* Video Section */}
-        <div className="video-section p-3 border-b border-gray-200 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">{video.title}</h3>
-          
-          {/* Video Player Container */}
-          <div className="w-full">
-            <div className="relative aspect-video">
-              {(() => {
-                const videoSrc = video.video_file && video.video_file.trim() 
-                  ? video.video_file
-                  : '/files/placeholder.mp4';
-                
-                console.log(`🎥 FRONTEND GRID VIDEO PLAYER RENDER:`, {
-                  title: video.title,
-                  raw_video_file: video.video_file,
-                  computed_src: videoSrc,
-                });
-                
-                return (
-                  <CustomVideoPlayer
-                    src={videoSrc}
-                    title={video.title}
-                    comments={videoComments.map(comment => ({
-                      ...comment,
-                      isEvaluation: isEvaluationComment(comment)
-                    }))}
-                    isPlaying={videoState.isPlaying}
-                    currentTime={videoState.currentTime}
-                    onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-                    onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-                    onSeek={(time) => handleSeek(video.title, time)}
-                  />
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Comments Panel */}
-        <section className="comments-panel flex-1 flex flex-col min-h-0" aria-labelledby={`grid-comments${index + 1}-title`}>
-          <h3 id={`grid-comments${index + 1}-title`} className="sr-only">Comments for {video.title}</h3>
-          
-          {/* Comment Form - Compact Design */}
-          <div className="comment-form bg-gray-50 p-3 border-b border-gray-200 flex-shrink-0">
-            {/* Top Row: Mode + ISBAR */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              {/* Labeling Mode */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Mode</label>
-                <div className="flex bg-white rounded border border-gray-200 text-xs">
-                  <button
-                    onClick={() => setLabelMode('start_end')}
-                    className={`flex-1 px-2 py-1 rounded-l transition-colors ${
-                      labelMode === 'start_end'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    Start/End
-                  </button>
-                  <button
-                    onClick={() => setLabelMode('duration')}
-                    className={`flex-1 px-2 py-1 rounded-r transition-colors ${
-                      labelMode === 'duration'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    Duration
-                  </button>
-                </div>
-              </div>
-
-              {/* ISBAR Select */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">ISBAR</label>
-                <select
-                  value={annotationCommentType}
-                  onChange={(e) => setAnnotationCommentType(e.target.value as any)}
-                  className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
-                >
-                  <option value="identification">🏥 Identification</option>
-                  <option value="situation">📊 Situation</option>
-                  <option value="background">📋 Background</option>
-                  <option value="assessment">🔍 Assessment</option>
-                  <option value="recommendation">💡 Recommendation</option>
-                  <option value="general">💬 General</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Duration selector (only in duration mode) */}
-            {labelMode === 'duration' && (
-              <div className="mb-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Duration</label>
-                <select
-                  value={annotationDuration}
-                  onChange={(e) => setAnnotationDuration(parseInt(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
-                >
-                  <option value={10}>10s</option>
-                  <option value={15}>15s</option>
-                  <option value={30}>30s</option>
-                  <option value={60}>1min</option>
-                  <option value={120}>2min</option>
-                  <option value={300}>5min</option>
-                </select>
-              </div>
-            )}
-
-            {/* Comment Textarea */}
-            <div className="mb-2">
-              <textarea
-                className="w-full h-16 px-2 py-1 text-xs border border-gray-200 rounded resize-none"
-                placeholder="Describe what you observe..."
-                value={videoPlayerStates.get(video.title)?.newComment || ''}
-                onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              />
-            </div>
-
-            {/* Quick Templates - Compact 4-column grid */}
-            <div className="grid grid-cols-4 gap-1 mb-2">
-              <button
-                onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated.')}
-                className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded hover:bg-green-200 transition-colors"
-                title="Positive feedback"
-              >
-                ✓
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '⚠️ Attention needed for safety.')}
-                className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded hover:bg-yellow-200 transition-colors"
-                title="Needs attention"
-              >
-                ⚠
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '❌ Critical issue - immediate correction needed.')}
-                className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200 transition-colors"
-                title="Critical issue"
-              >
-                ❌
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '🎯 Key learning moment.')}
-                className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 transition-colors"
-                title="Teaching moment"
-              >
-                📚
-              </button>
-            </div>
-
-            {/* Action Row */}
-            <div className="flex gap-2">
-              {labelMode === 'start_end' ? (
-                <>
-                  {/* Start Label Button - Always Available */}
-                  <button
-                    onClick={() => {
-                      const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                      const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                      
-                      if (hasIsbarEvaluation) {
-                        // Use ISBAR evaluation
-                        handleSubmitIsbarEvaluation(video.title);
-                      } else if (comment) {
-                        // Use regular comment
-                        handleStartLabel(video.title, comment, annotationCommentType);
-                      }
-                    }}
-                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
-                    className="flex-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    Start Label
-                  </button>
-                  
-                  {/* End Label Button - Available when there are active labels */}
-                  <button
-                    onClick={() => {
-                      const activeLabelsForVideo = getActiveLabelsForVideo(video.title);
-                      if (activeLabelsForVideo.length === 1) {
-                        // If only one active label, end it directly
-                        handleEndLabel(activeLabelsForVideo[0].id);
-                      } else if (activeLabelsForVideo.length > 1) {
-                        // If multiple active labels, end the most recent one
-                        const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
-                        handleEndLabel(mostRecentLabel.id);
-                      }
-                    }}
-                    disabled={getActiveLabelsForVideo(video.title).length === 0}
-                    className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:bg-gray-400 transition-colors"
-                    title={getActiveLabelsForVideo(video.title).length > 1 ? `End most recent of ${getActiveLabelsForVideo(video.title).length} active labels` : getActiveLabelsForVideo(video.title).length === 1 ? "End active label" : "No active labels to end"}
-                  >
-                    End Label {getActiveLabelsForVideo(video.title).length > 0 && `(${getActiveLabelsForVideo(video.title).length})`}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => {
-                    const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                    const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                    
-                    if (hasIsbarEvaluation) {
-                      // Use ISBAR evaluation
-                      handleSubmitIsbarEvaluation(video.title);
-                    } else if (comment) {
-                      // Use regular comment
-                      const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
-                      handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
-                    }
-                  }}
-                  disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
-                  className="flex-1 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-                >
-                  Add Comment
-                </button>
-              )}
-              
-              <button
-                onClick={() => {
-                  handleCommentChange(video.title, '');
-                  setIsbarValue(''); // Also clear ISBAR value
-                }}
-                className="px-3 py-1 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300 transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Comments List - Scrollable with max height */}
-          <div className="grid-comments-list flex-1 overflow-y-auto min-h-0 p-3">
-            {videoComments.length === 0 ? (
-              <div className="text-center py-6">
-                <MessageSquare size={24} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-500 text-xs">No comments yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {videoComments.map((comment, commentIndex) => {
-                  const commentType = getCommentType(comment);
-                  const badge = getCommentBadge(commentType);
-                  const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                  const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                  
-                  return (
-                    <div key={`grid-comment-${comment.name}-${commentIndex}`} className="comment-item bg-gray-50 border rounded p-2">
-                      <div className="flex items-start gap-2">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
-                          {initials}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1 mb-1">
-                            <span className="font-medium text-xs truncate">{doctorName}</span>
-                            <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
-                            <span className={`px-1 py-0.5 text-xs rounded ${badge.classes}`}>
-                              {badge.label}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-700 line-clamp-2">
-                            {comment.comment_text}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-      </article>
-    );
-  };
-
   // Render a single video with comments
   const renderVideoPlayer = (video: Video) => {
     if (!video) return null;
@@ -2387,28 +1667,18 @@ const SessionDetail = () => {
           </div>
         </div>
 
-        {/* Main Content - Responsive 2-Column Layout */}
-        <div className="flex flex-col lg:flex-row min-h-[calc(100vh-200px)]">
-          {/* Left Column - Video Player (~70%) */}
-          <div className="flex-none lg:flex-1 lg:w-[70%] bg-gray-50 flex flex-col">
+        {/* Main Content - Side by Side Layout */}
+        <div className="flex h-[calc(100vh-160px)]">
+          {/* Left Side - Video Player */}
+          <div className="flex-1 flex flex-col bg-gray-50">
             {/* Video Player Container */}
             <div className="flex-1 p-4">
-              <div className="relative h-full min-h-[400px] lg:min-h-[60vh]">
-                {(() => {
-                  const videoSrc = video.video_file && video.video_file.trim() 
+              <div className="relative h-full">
+                <CustomVideoPlayer
+                  src={video.video_file && video.video_file.trim() 
                     ? video.video_file  // Use the path as-is from the backend
-                    : '/files/placeholder.mp4';  // fallback for missing video
-                  
-                  console.log(`🎥 FRONTEND VIDEO PLAYER RENDER:`, {
-                    title: video.title,
-                    raw_video_file: video.video_file,
-                    computed_src: videoSrc,
-                    is_current_video: currentVideo?.title === video.title
-                  });
-                  
-                  return (
-                    <CustomVideoPlayer
-                      src={videoSrc}
+                    : '/files/placeholder.mp4'  // fallback for missing video
+                  }
                   title={video.title}
                   comments={videoComments.map(comment => ({
                     ...comment,
@@ -2420,8 +1690,6 @@ const SessionDetail = () => {
                   onPlayPause={(playing) => handlePlayPause(video.title, playing)}
                   onSeek={(time) => handleSeek(video.title, time)}
                 />
-                  );
-                })()}
               </div>
             </div>
 
@@ -2577,24 +1845,16 @@ const SessionDetail = () => {
             </div>
           </div>
 
-          {/* Right Column - Comments Panel (~30%) */}
-                      <div className="comments-panel flex flex-col lg:w-[30%] bg-white border-l-0 lg:border-l border-t lg:border-t-0 border-gray-200 min-h-[120vh] max-h-screen">
-            {/* Skip Link for Keyboard Users */}
-            <a href="#comments-section" className="skip-link sr-only focus:not-sr-only">
-              Skip to comments
-            </a>
-            
+          {/* Right Side - Comments Section */}
+          <div className="w-96 border-l border-gray-200 bg-white flex flex-col">
             {/* Comments Header */}
-            <div id="comments-section" className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+            <div className="p-4 border-b border-gray-200 bg-gray-50">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                   <MessageSquare size={18} className="text-blue-500" />
                   Comments
                   <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-sm font-medium">
                     {videoComments.length}
-                    {videoComments.length > 3 && (
-                      <span className="ml-1 text-xs opacity-75">• Scroll for more</span>
-                    )}
                   </span>
                 </h3>
                 <div className="flex items-center gap-2">
@@ -2608,9 +1868,9 @@ const SessionDetail = () => {
             </div>
 
             {/* Comment Input Section */}
-            <div className="comments-input-section flex-none p-2 border-b border-gray-200 bg-gray-50">
+            <div className="p-3 border-b border-gray-200 bg-gray-50">
               {/* Mode Selector */}
-              <div className="mb-1.5">
+              <div className="mb-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Labeling Mode
                 </label>
@@ -2639,7 +1899,7 @@ const SessionDetail = () => {
               </div>
 
               {/* Settings Row */}
-              <div className="grid grid-cols-2 gap-2 mb-1.5">
+              <div className="grid grid-cols-2 gap-3 mb-2">
                 {/* Duration (only show in duration mode) */}
                 {labelMode === 'duration' && (
                   <div>
@@ -2664,14 +1924,11 @@ const SessionDetail = () => {
                 {/* Type */}
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    ISBAR Category
+                    ISBAR Evaluation
                   </label>
                   <select
                     value={annotationCommentType}
-                    onChange={(e) => {
-                      setAnnotationCommentType(e.target.value as any);
-                      setIsbarValue(''); // Clear ISBAR value when category changes
-                    }}
+                    onChange={(e) => setAnnotationCommentType(e.target.value as any)}
                     className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                   >
                     <option value="identification">🏥 Identification</option>
@@ -2682,283 +1939,145 @@ const SessionDetail = () => {
                     <option value="general">💬 General</option>
                   </select>
                 </div>
-
-                {/* ISBAR Value Dropdown - show when ISBAR category is selected */}
-                {['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      ISBAR Score
-                    </label>
-                    <select
-                      value={isbarValue}
-                      onChange={(e) => setIsbarValue(e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
-                    >
-                      <option value="">Select score...</option>
-                      {annotationCommentType === 'identification' && (
-                        <>
-                          <option value="0">0 - Requires direct prompting</option>
-                          <option value="1">1 - After a hint</option>
-                          <option value="2">2 - Information incomplete</option>
-                          <option value="3">3 - Information complete</option>
-                        </>
-                      )}
-                      {annotationCommentType === 'situation' && (
-                        <>
-                          <option value="0">0 - Unable to identify</option>
-                          <option value="1">1 - After extended prompting</option>
-                          <option value="2">2 - Fewer prompts needed</option>
-                          <option value="3">3 - Unprompted</option>
-                        </>
-                      )}
-                      {annotationCommentType === 'background' && (
-                        <>
-                          <option value="0">0 - Unstructured/non-relevant</option>
-                          <option value="1">1 - Frequent clarification needed</option>
-                          <option value="2">2 - Few questions needed</option>
-                          <option value="3">3 - Comprehensive focused</option>
-                        </>
-                      )}
-                      {annotationCommentType === 'assessment' && (
-                        <>
-                          <option value="0">0 - No logical assessment</option>
-                          <option value="1">1 - After extended questioning</option>
-                          <option value="2">2 - After minimal questioning</option>
-                          <option value="3">3 - Without questioning</option>
-                        </>
-                      )}
-                      {annotationCommentType === 'recommendation' && (
-                        <>
-                          <option value="0">0 - No clear recommendation</option>
-                          <option value="1">1 - After extended questioning</option>
-                          <option value="2">2 - After minimal questioning</option>
-                          <option value="3">3 - Without questioning</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                )}
               </div>
 
               {/* Comment Input */}
-              <div className="mb-1.5">
-                <label htmlFor={`comment-input-${video.title}`} className="block text-xs font-medium text-gray-700 mb-1">
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Comment
                 </label>
                 <textarea
-                  id={`comment-input-${video.title}`}
                   rows={2}
-                  className="w-full rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 px-2 py-1.5 text-sm text-gray-900 placeholder-gray-500 transition-all duration-300 resize-none"
+                  className="w-full rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 transition-all duration-300 resize-none"
                   placeholder="Describe what you observe at this moment..."
                   value={videoPlayerStates.get(video.title)?.newComment || ''}
                   onChange={(e) => handleCommentChange(video.title, e.target.value)}
-                  aria-describedby={`comment-help-${video.title}`}
                 />
-                <div id={`comment-help-${video.title}`} className="sr-only">
-                  Use the template buttons below to quickly insert common feedback, or type your own comment.
-                </div>
                 <div className="text-xs text-gray-400 mt-1">
                   {(videoPlayerStates.get(video.title)?.newComment || '').length}/500
                 </div>
               </div>
 
-              {/* Template Buttons - Single Row */}
-              <div className="mb-3" role="group" aria-label="Quick Comment Templates">
-                <label className="block text-xs font-medium text-gray-700 mb-2">
+              {/* Quick Templates */}
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Quick Templates
                 </label>
-                <div className="grid grid-cols-5 gap-1">
-                  {/* Positive */}
-                  <button
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
                     onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated. Good hand positioning and instrument control.')}
-                    className="template-button flex flex-col items-center justify-center p-2 border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 rounded-lg transition-colors text-xs font-medium h-16"
-                    aria-label="Insert positive feedback template"
-                    tabIndex={0}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-green-700 border-green-200 hover:bg-green-50 rounded-md text-xs"
                   >
-                    <CheckCircle size={16} className="mb-1" aria-hidden="true" />
-                    <span>Positive</span>
-                  </button>
-                  
-                  {/* Attention */}
-                  <button
+                    👍 Positive
+                  </Button>
+                  <Button
                     onClick={() => handleCommentChange(video.title, '⚠️ Attention needed: Consider adjusting approach for better safety and precision.')}
-                    className="template-button flex flex-col items-center justify-center p-2 border border-yellow-300 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 rounded-lg transition-colors text-xs font-medium h-16"
-                    aria-label="Insert attention needed template"
-                    tabIndex={0}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-yellow-700 border-yellow-200 hover:bg-yellow-50 rounded-md text-xs"
                   >
-                    <AlertTriangle size={16} className="mb-1" aria-hidden="true" />
-                    <span>Attention</span>
-                  </button>
-                  
-                  {/* Critical */}
-                  <button
-                    onClick={() => handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.')}
-                    className="template-button flex flex-col items-center justify-center p-2 border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 rounded-lg transition-colors text-xs font-medium h-16"
-                    aria-label="Insert critical issue template"
-                    tabIndex={0}
-                  >
-                    <AlertTriangle size={16} className="mb-1" aria-hidden="true" />
-                    <span>Critical</span>
-                  </button>
-                  
-                  {/* Teaching */}
-                  <button
+                    ⚠️ Attention
+                  </Button>
+                  <Button
                     onClick={() => handleCommentChange(video.title, '🎯 Key learning moment: This demonstrates proper technique for this procedure.')}
-                    className="template-button flex flex-col items-center justify-center p-2 border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-lg transition-colors text-xs font-medium h-16"
-                    aria-label="Insert teaching moment template"
-                    tabIndex={0}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-blue-700 border-blue-200 hover:bg-blue-50 rounded-md text-xs"
                   >
-                    <GraduationCap size={16} className="mb-1" aria-hidden="true" />
-                    <span>Teaching</span>
-                  </button>
-                  
-                  {/* Custom */}
-                  <button
-                    onClick={() => handleFloatingComment()}
-                    className="template-button flex flex-col items-center justify-center p-2 border border-gray-300 bg-gray-50 text-gray-800 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 rounded-lg transition-colors text-xs font-medium h-16"
-                    aria-label="Open custom comment dialog"
-                    tabIndex={0}
+                    🎯 Teaching
+                  </Button>
+                  <Button
+                    onClick={() => handleCommentChange(video.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.')}
+                    variant="outline"
+                    size="sm"
+                    className="text-left p-2 h-auto text-red-700 border-red-200 hover:bg-red-50 rounded-md text-xs"
                   >
-                    <Edit3 size={16} className="mb-1" aria-hidden="true" />
-                    <span>Custom</span>
-                  </button>
+                    ❌ Critical
+                  </Button>
                 </div>
               </div>
 
-              {/* Action Toggle Button */}
+              {/* Action Buttons */}
               <div className="flex items-center gap-2">
                 {labelMode === 'start_end' ? (
-                  <>
-                    <div className="flex gap-2 w-full">
-                      {/* Start Label Button - Always Available */}
-                      <Button
-                        onClick={() => {
-                          const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                          const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                          
-                          if (hasIsbarEvaluation) {
-                            // Use ISBAR evaluation
-                            handleSubmitIsbarEvaluation(video.title);
-                          } else if (comment) {
-                            // Use regular comment
-                            handleStartLabel(video.title, comment, annotationCommentType);
-                          }
-                        }}
-                        disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
-                        size="sm"
-                        className="flex-1 bg-green-600 hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        aria-label="Start new label recording"
-                        aria-describedby="label-status"
-                      >
-                        <Play size={14} className="mr-2" aria-hidden="true" />
-                        Start Label
-                      </Button>
-
-                      {/* End Label Button - Available when there are active labels */}
-                      <Button
-                        onClick={() => {
-                          const activeLabelsForVideo = getActiveLabelsForVideo(video.title);
-                          if (activeLabelsForVideo.length === 1) {
-                            // If only one active label, end it directly
-                            handleEndLabel(activeLabelsForVideo[0].id);
-                          } else if (activeLabelsForVideo.length > 1) {
-                            // If multiple active labels, end the most recent one
-                            const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
-                            handleEndLabel(mostRecentLabel.id);
-                          }
-                        }}
-                        disabled={getActiveLabelsForVideo(video.title).length === 0}
-                        size="sm"
-                        className="flex-1 bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        aria-label={getActiveLabelsForVideo(video.title).length > 1 ? "End most recent label" : "End active label"}
-                        aria-describedby="label-status"
-                        title={getActiveLabelsForVideo(video.title).length > 1 ? `End most recent of ${getActiveLabelsForVideo(video.title).length} active labels` : getActiveLabelsForVideo(video.title).length === 1 ? "End active label" : "No active labels to end"}
-                      >
-                        <Square size={14} className="mr-2" aria-hidden="true" />
-                        End Label {getActiveLabelsForVideo(video.title).length > 0 && `(${getActiveLabelsForVideo(video.title).length})`}
-                      </Button>
-                    </div>
-                  </>
-                ) : (
                   <Button
                     onClick={() => {
                       const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                      const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                      
-                      if (hasIsbarEvaluation) {
-                        // Use ISBAR evaluation
-                        handleSubmitIsbarEvaluation(video.title);
-                      } else if (comment) {
-                        // Use regular comment
-                        const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
-                        handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
+                      if (comment) {
+                        handleStartLabel(video.title, comment, annotationCommentType);
                       }
                     }}
-                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
+                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
                     size="sm"
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    aria-label="Add comment at current timestamp"
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                   >
-                    <Send size={14} className="mr-2" aria-hidden="true" />
+                    <Target size={14} className="mr-1" />
+                    Start Label
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
+                      handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
+                    }}
+                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim()}
+                    size="sm"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Send size={14} className="mr-1" />
                     Add Comment
                   </Button>
                 )}
                 <Button
-                  onClick={() => {
-                    handleCommentChange(video.title, '');
-                    setIsbarValue(''); // Also clear ISBAR value
-                  }}
+                  onClick={() => handleCommentChange(video.title, '')}
                   variant="outline"
                   size="sm"
-                  className="px-4 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  aria-label="Clear comment text"
+                  className="px-3"
                 >
                   Clear
                 </Button>
               </div>
 
-              {/* Status Messages for Screen Readers */}
-              <div id="label-status" className="sr-only">
-                {getActiveLabelsForVideo(video.title).length > 0 
-                  ? 'Label recording in progress' 
-                  : 'Ready to start new label'
-                }
+              {/* Active Labels Display */}
+              {labelMode === 'start_end' && getActiveLabelsForVideo(video.title).length > 0 && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs font-medium text-blue-800 mb-2">Active Labels:</div>
+                  <div className="space-y-2">
+                    {getActiveLabelsForVideo(video.title).map((label) => (
+                      <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                        <div className="flex-1">
+                          <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                          <div className="text-xs text-gray-500">Started at {formatTime(label.startTime)}</div>
                         </div>
-              
-              {/* Live Region for Dynamic Updates */}
-              <div aria-live="assertive" aria-atomic="true" className="sr-only">
-                {labelStatusMessage}
+                        <div className="flex items-center gap-1">
+                          <Button
+                            onClick={() => handleEndLabel(label.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-green-700 border-green-200 hover:bg-green-50 px-2 py-1 h-auto text-xs"
+                          >
+                            End
+                          </Button>
+                          <Button
+                            onClick={() => handleCancelLabel(label.id)}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-700 border-red-200 hover:bg-red-50 px-2 py-1 h-auto text-xs"
+                          >
+                            Cancel
+                          </Button>
                         </div>
-
-
                       </div>
-
-            {/* Comments List - Flexible Height with Scrolling */}
-            <div 
-              className="comments-list-section comment-list-container flex-1 overflow-y-auto custom-scrollbar relative"
-              role="region"
-              aria-label="Video Comments"
-              aria-live="polite"
-              style={{ 
-                containIntrinsicSize: 'none',
-                contain: 'layout style'
-              }}
-            >
-              {/* Scroll indicator gradient - only when content overflows */}
-              {videoComments.length > 0 && (
-                <>
-                  <div 
-                    className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white/20 to-transparent pointer-events-none z-10"
-                    aria-hidden="true"
-                    style={{ opacity: videoComments.length > 5 ? 1 : 0 }}
-                  />
-                  <div className="sr-only" aria-live="polite">
-                    {videoComments.length} comments available. Scroll to navigate all comments.
+                    ))}
                   </div>
-                </>
+                </div>
               )}
-                             {/* Comments container - flexible height, no fixed constraints */}
-              <div className="flex flex-col gap-2 p-2">
+            </div>
+
+            {/* Comments List - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-3 pb-6 space-y-2 custom-scrollbar">
               {videoComments.length === 0 ? (
                 <div className="text-center py-12">
                   <MessageSquare size={48} className="mx-auto text-gray-300 mb-4" />
@@ -2968,148 +2087,72 @@ const SessionDetail = () => {
               ) : (
                 videoComments.map((comment, index) => {
                   const isEvaluation = isEvaluationComment(comment);
-                  const commentType = getCommentType(comment);
-                  const badge = getCommentBadge(commentType);
-                  const isExpanded = expandedComments.has(comment.name);
-                  const commentText = comment.comment_text;
-                  const shouldShowExpander = commentText.length > 150;
-                  
-                  // Extract doctor initials for avatar
-                  const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                  const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                   
                   return (
-                    <article 
-                      key={`comment-${comment.name}-${index}`}
-                      className="group bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 flex-shrink-0"
-                      role="article"
-                      aria-labelledby={`comment-${comment.name}-header`}
+                    <div 
+                      key={comment.name} 
+                      className={`group p-3 rounded-lg border transition-all duration-300 ${
+                        isEvaluation 
+                          ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 hover:shadow-md' 
+                          : 'bg-white border-gray-200 hover:shadow-sm'
+                      }`}
+                      style={{ animationDelay: `${index * 100}ms` }}
                     >
-                      {/* Header Row */}
-                      <div className="flex items-start gap-3 mb-3">
-                        {/* Avatar */}
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-sm font-medium">{initials}</span>
+                      <div className="flex items-start gap-3">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          isEvaluation 
+                            ? 'bg-gradient-to-br from-green-600 to-emerald-600' 
+                            : 'bg-gradient-to-br from-blue-600 to-indigo-600'
+                        }`}>
+                          {isEvaluation ? (
+                            <ClipboardCheck size={14} className="text-white" />
+                          ) : (
+                            <MessageSquare size={14} className="text-white" />
+                          )}
                         </div>
                         
-                        {/* Content Column */}
                         <div className="flex-1 min-w-0">
-                          {/* Top Row: Name, Badge, Actions */}
-                          <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <span 
-                                id={`comment-${comment.name}-header`}
-                                className="text-sm font-medium text-gray-900 truncate"
-                                aria-label={`Comment by ${doctorName} at ${formatTime(comment.timestamp)}`}
-                              >
-                                {doctorName}
+                              <span className="text-sm font-medium text-gray-900">
+                                {comment.doctor_name || comment.doctor || 'Unknown'}
                               </span>
-                              {/* Status Badge */}
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badge.classes}`}>
-                                <span className={`w-1.5 h-1.5 ${badge.dotClasses} rounded-full mr-1`}></span>
-                                {badge.label}
+                              <span className="text-xs text-gray-500">
+                                {formatDate(comment.created_at)}
                               </span>
                             </div>
-                            
-                            {/* Action Icons (Hidden until hover) */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleSeek(video.title, comment.timestamp)}
+                                className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full hover:bg-blue-200 transition-colors"
+                                title="Jump to this time"
+                              >
+                                {formatTime(comment.timestamp)}
+                                {comment.duration && ` (+${formatTime(comment.duration)})`}
+                              </button>
                               {canEditComment(comment) && (
-                                <button 
+                                <Button
                                   onClick={() => handleEditComment(comment)}
-                                  className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 rounded" 
-                                  aria-label={`Edit comment by ${doctorName}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-blue-600"
                                 >
-                                  <Edit3 size={16} aria-hidden="true" />
-                                </button>
+                                  <Edit3 size={12} />
+                                </Button>
                               )}
                               {canDeleteComment(comment) && (
-                                <button 
+                                <Button
                                   onClick={() => setCommentToDelete({ name: comment.name, text: comment.comment_text })}
-                                  className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 rounded" 
-                                  aria-label={`Delete comment by ${doctorName}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-red-600"
                                 >
-                                  <Trash2 size={16} aria-hidden="true" />
-                                </button>
+                                  <Trash2 size={12} />
+                                </Button>
                               )}
                             </div>
                           </div>
                           
-                          {/* Timestamp & Jump Button */}
-                          <div className="flex items-center gap-2 mb-2">
-                            <button
-                              onClick={() => handleSeek(video.title, comment.timestamp)}
-                              className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-100 transition-colors"
-                            >
-                              <Clock size={12} className="mr-1" />
-                              {formatTime(comment.timestamp)}
-                              {comment.duration && ` (+${formatTime(comment.duration)})`}
-                            </button>
-                            
-                            {/* Duration Edit Section */}
-                            {comment.duration && editingComment?.name !== comment.name && (
-                              <div className="flex items-center gap-1">
-                                {editingDuration === comment.name ? (
-                                  <div className="flex items-center gap-1">
-                                    <div className="flex items-center gap-0.5">
-                                      <input
-                                        type="number"
-                                        value={editDurationValue}
-                                        onChange={(e) => setEditDurationValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            handleSaveDuration(comment.name);
-                                          } else if (e.key === 'Escape') {
-                                            handleCancelDurationEdit();
-                                          }
-                                        }}
-                                        placeholder="30"
-                                        className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:border-blue-500 focus:outline-none"
-                                        min="1"
-                                        max="600"
-                                        autoFocus
-                                        title="Duration in seconds (1-600). Press Enter to save, Escape to cancel."
-                                      />
-                                      <span className="text-xs text-gray-500">s</span>
-                                      {editDurationValue && !isNaN(parseInt(editDurationValue)) && (
-                                        <span className="text-xs text-blue-600 ml-1">
-                                          ({formatTime(parseInt(editDurationValue))})
-                                        </span>
-                                      )}
-                                    </div>
-                                    <button
-                                      onClick={() => handleSaveDuration(comment.name)}
-                                      className="p-0.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded"
-                                      aria-label="Save duration"
-                                    >
-                                      <Save size={12} />
-                                    </button>
-                                    <button
-                                      onClick={handleCancelDurationEdit}
-                                      className="p-0.5 text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded"
-                                      aria-label="Cancel duration edit"
-                                    >
-                                      <X size={12} />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => handleEditDuration(comment)}
-                                    className="p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                                    aria-label="Edit duration"
-                                  >
-                                    <Edit3 size={12} />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            
-                            <span className="text-xs text-gray-500">{formatDate(comment.created_at)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Comment Text with Expandable Content */}
-                      <div className="ml-13"> {/* Offset to align with content above */}
                           {editingComment?.name === comment.name ? (
                             <div className="space-y-2">
                               <textarea
@@ -3139,44 +2182,16 @@ const SessionDetail = () => {
                               </div>
                             </div>
                           ) : (
-                          <div className="text-sm text-gray-700 leading-relaxed">
-                            {/* Truncated or Full Text */}
-                            <div 
-                              id={`comment-${comment.name}-text`}
-                              className={shouldShowExpander && !isExpanded ? "line-clamp-3" : ""}
-                            >
-                              {commentText}
+                            <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                              {comment.comment_text}
                             </div>
-                            
-                            {/* Expand/Collapse Button */}
-                            {shouldShowExpander && (
-                              <button 
-                                onClick={() => toggleCommentExpansion(comment.name)}
-                                className="text-blue-600 hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 text-xs font-medium mt-1 inline-flex items-center gap-1 rounded px-1"
-                                aria-expanded={isExpanded}
-                                aria-controls={`comment-${comment.name}-text`}
-                                aria-label={isExpanded ? 'Show less of comment' : 'Show more of comment'}
-                              >
-                                <span>{isExpanded ? 'Show less' : 'Show more'}</span>
-                                <svg 
-                                  className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
-                                  fill="none" 
-                                  stroke="currentColor" 
-                                  viewBox="0 0 24 24"
-                                  aria-hidden="true"
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"/>
-                                </svg>
-                              </button>
                           )}
                         </div>
-                        )}
                       </div>
-                    </article>
+                    </div>
                   );
                 })
               )}
-              </div>
             </div>
           </div>
         </div>
@@ -3186,7 +2201,7 @@ const SessionDetail = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* Enhanced Header Section */}
         <div className="mb-6">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
@@ -3360,120 +2375,34 @@ const SessionDetail = () => {
         )}
         
         {layout === 'side-by-side' && sessionData && sessionData.videos.length >= 2 && (
-          <div className="w-full max-w-7xl mx-auto space-y-6">
-            {/* Global Sync Control */}
-            <div className="flex justify-center" role="toolbar" aria-label="Video synchronization controls">
-              <button
-                type="button"
-                onClick={() => {
-                  // Sync all videos to the first video's current time
-                  const firstVideo = sessionData.videos[0];
-                  syncVideosToReference(firstVideo);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-                aria-pressed="false"
-              >
-                <Zap size={16} />
-                Sync Videos
-              </button>
-              <button
-                type="button"
-                className="ml-2 p-2 text-gray-500 hover:text-gray-700"
-                title="Keyboard shortcuts: Space=play/pause, ←/→=seek, ↑/↓=volume"
-                aria-label="Show keyboard shortcuts"
-              >
-                <Info size={16} />
-              </button>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {sessionData.videos.slice(0, 2).map((video, index) => (
+              <div key={video.title} style={{ animationDelay: `${index * 200}ms` }} className="animate-fade-in-up">
+                {renderVideoPlayer(video)}
               </div>
-
-            {/* Dual Video Grid */}
-            <div className="dual-video-grid grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {sessionData.videos.slice(0, 2).map((video, index) => (
-                <article 
-                  key={video.title} 
-                  className="video-card animate-fade-in-up" 
-                  role="region" 
-                  aria-labelledby={`video${index + 1}-title`}
-                  style={{ animationDelay: `${index * 200}ms` }}
-                >
-                  <header>
-                    <h2 id={`video${index + 1}-title`} className="sr-only">{video.title} Video Player</h2>
-                  </header>
-                  
-                  {renderDualVideoPlayer(video, index)}
-                </article>
-              ))}
-            </div>
+            ))}
           </div>
         )}
         
-        {layout === 'grid' && sessionData && sessionData.videos.length >= 3 && (
-          <div className="w-full max-w-[1600px] mx-auto space-y-6">
-            {/* Global Sync Control */}
-            <div className="flex justify-center" role="toolbar" aria-label="Video synchronization controls">
-              <button
-                type="button"
-                onClick={() => {
-                  // Sync all videos to the first video's current time
-                  const firstVideo = sessionData.videos[0];
-                  syncVideosToReference(firstVideo);
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-                aria-pressed="false"
-              >
-                <Zap size={16} />
-                Sync Videos
-              </button>
-              <button
-                type="button"
-                className="ml-2 p-2 text-gray-500 hover:text-gray-700"
-                title="Keyboard shortcuts: Space=play/pause, ←/→=seek, ↑/↓=volume"
-                aria-label="Show keyboard shortcuts"
-              >
-                <Info size={16} />
-              </button>
+        {layout === 'grid' && sessionData && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {sessionData.videos.map((video, index) => (
+              <div key={video.title} style={{ animationDelay: `${index * 100}ms` }} className="animate-fade-in-up">
+                {renderVideoPlayer(video)}
               </div>
-
-            {/* 3-Video Grid */}
-            <div className="three-video-grid grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 lg:gap-6">
-              {sessionData.videos.slice(0, 3).map((video, index) => (
-                <article 
-                  key={video.title} 
-                  className={`video-card animate-fade-in-up ${
-                    index === 2 ? 'lg:col-span-2 2xl:col-span-1' : ''
-                  }`}
-                  role="region" 
-                  aria-labelledby={`grid-video${index + 1}-title`}
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <header>
-                    <h2 id={`grid-video${index + 1}-title`} className="sr-only">{video.title} Video Player</h2>
-                  </header>
-                  
-                  {renderGridVideoPlayer(video, index)}
-                </article>
-              ))}
-            </div>
+            ))}
           </div>
         )}
 
         {/* Global Floating Video List Sidebar */}
-        {sessionData && (() => {
-          console.log('🎬 FRONTEND VIDEO LIST SIDEBAR DEBUG:', {
-            total_videos: sessionData.videos.length,
-            videos: sessionData.videos.map(v => ({ title: v.title, video_file: v.video_file })),
-            current_video: currentVideo ? { title: currentVideo.title, video_file: currentVideo.video_file } : null
-          });
-          
-          return (
+        {sessionData && (
           <VideoList
             videos={sessionData.videos}
             currentVideo={currentVideo}
             onVideoChange={handleVideoChange}
             getVideoComments={getVideoComments}
           />
-          );
-        })()}
+        )}
       </div>
       
       {/* Floating Comment Modal */}
@@ -3599,14 +2528,11 @@ const SessionDetail = () => {
                   {/* Type */}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      ISBAR Category
+                      ISBAR Evaluation
                     </label>
                     <select
                       value={annotationCommentType}
-                      onChange={(e) => {
-                        setAnnotationCommentType(e.target.value as any);
-                        setIsbarValue(''); // Clear ISBAR value when category changes
-                      }}
+                      onChange={(e) => setAnnotationCommentType(e.target.value as any)}
                       className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                     >
                       <option value="identification">🏥 Identification</option>
@@ -3617,70 +2543,47 @@ const SessionDetail = () => {
                       <option value="general">💬 General</option>
                     </select>
                   </div>
-
-                  {/* ISBAR Value Dropdown - show when ISBAR category is selected */}
-                  {['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        ISBAR Score
-                      </label>
-                      <select
-                        value={isbarValue}
-                        onChange={(e) => setIsbarValue(e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
-                      >
-                        <option value="">Select score...</option>
-                        {annotationCommentType === 'identification' && (
-                          <>
-                            <option value="0">0 - Requires direct prompting</option>
-                            <option value="1">1 - After a hint</option>
-                            <option value="2">2 - Information incomplete</option>
-                            <option value="3">3 - Information complete</option>
-                          </>
-                        )}
-                        {annotationCommentType === 'situation' && (
-                          <>
-                            <option value="0">0 - Unable to identify</option>
-                            <option value="1">1 - After extended prompting</option>
-                            <option value="2">2 - Fewer prompts needed</option>
-                            <option value="3">3 - Unprompted</option>
-                          </>
-                        )}
-                        {annotationCommentType === 'background' && (
-                          <>
-                            <option value="0">0 - Unstructured/non-relevant</option>
-                            <option value="1">1 - Frequent clarification needed</option>
-                            <option value="2">2 - Few questions needed</option>
-                            <option value="3">3 - Comprehensive focused</option>
-                          </>
-                        )}
-                        {annotationCommentType === 'assessment' && (
-                          <>
-                            <option value="0">0 - No logical assessment</option>
-                            <option value="1">1 - After extended questioning</option>
-                            <option value="2">2 - After minimal questioning</option>
-                            <option value="3">3 - Without questioning</option>
-                          </>
-                        )}
-                        {annotationCommentType === 'recommendation' && (
-                          <>
-                            <option value="0">0 - No clear recommendation</option>
-                            <option value="1">1 - After extended questioning</option>
-                            <option value="2">2 - After minimal questioning</option>
-                            <option value="3">3 - Without questioning</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  )}
                 </div>
 
-
+                {/* Active Labels Display */}
+                {labelMode === 'start_end' && getActiveLabelsForVideo(currentVideo.title).length > 0 && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-xs font-medium text-blue-800 mb-2">Active Labels:</div>
+                    <div className="space-y-2">
+                      {getActiveLabelsForVideo(currentVideo.title).map((label) => (
+                        <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                          <div className="flex-1">
+                            <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                            <div className="text-xs text-gray-500">Started at {formatTime(label.startTime)}</div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              onClick={() => handleEndLabel(label.id)}
+                              variant="outline"
+                              size="sm"
+                              className="text-green-700 border-green-200 hover:bg-green-50 px-2 py-1 h-auto text-xs"
+                            >
+                              End
+                            </Button>
+                            <Button
+                              onClick={() => handleCancelLabel(label.id)}
+                              variant="outline"
+                              size="sm"
+                              className="text-red-700 border-red-200 hover:bg-red-50 px-2 py-1 h-auto text-xs"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto h-full">
+            <div className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-4">
                 {/* Tab Content */}
                 {activeTab === 'comment' ? (

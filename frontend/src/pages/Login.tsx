@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useFrappeAuth } from 'frappe-react-sdk';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,18 +14,49 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const hasRedirected = useRef(false);
+  const [preventAutoRedirect, setPreventAutoRedirect] = useState(false);
 
-  const { login, currentUser } = useFrappeAuth();
+  const { login, currentUser, isValidating } = useFrappeAuth();
+
+  // Check for logout flag and prevent auto-redirects temporarily
+  useEffect(() => {
+    const justLoggedOut = sessionStorage.getItem('just_logged_out') === 'true';
+    if (justLoggedOut) {
+      setPreventAutoRedirect(true);
+      sessionStorage.removeItem('just_logged_out');
+    }
+  }, []);
 
   // Monitor authentication state changes and redirect when authenticated
   useEffect(() => {
-    if (currentUser) {
-      console.log('User authenticated, redirecting to dashboard');
-      // Use the correct route for development environment
-      const dashboardPath = import.meta.env.DEV ? '/dashboard' : '/dashboard';
-      navigate(dashboardPath, { replace: true });
+    
+    // Reset redirect flag when no user (i.e., after logout)
+    if (!currentUser && !isValidating) {
+      hasRedirected.current = false;
     }
-  }, [currentUser, navigate]);
+    
+    // DISABLE AUTO-REDIRECT COMPLETELY - only redirect after successful manual login
+    // if (currentUser && !isValidating && location.pathname === '/login' && !hasRedirected.current && !preventAutoRedirect) {
+    //   console.log('User authenticated via useEffect, redirecting to dashboard:', currentUser);
+    //   hasRedirected.current = true;
+    //   const dashboardPath = '/dashboard';
+    //   // Use setTimeout to ensure state has settled
+    //   setTimeout(() => {
+    //     navigate(dashboardPath, { replace: true });
+    //   }, 100);
+    // }
+  }, [currentUser, isValidating, navigate, location.pathname, preventAutoRedirect]);
+
+  // Show loading if authentication is being validated
+  if (isValidating) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,18 +67,18 @@ const Login = () => {
 
     setIsLoggingIn(true);
     try {
-      const response = await login({ username, password });
-      console.log('Login successful', response);
+      await login({ username, password });
       toast.success('Login successful');
       
-      // Force redirect with a small delay to ensure state update is processed
-      setTimeout(() => {
-        // Use the correct URL for development environment
-        const dashboardUrl = import.meta.env.DEV 
-          ? window.location.origin + '/assets/surgical_training/frontend/dashboard'
-          : window.location.origin + '/surgical_training/dashboard';
-        window.location.href = dashboardUrl;
-      }, 500);
+      // Wait for auth state to propagate before redirecting
+      if (!hasRedirected.current) {
+        hasRedirected.current = true;
+        
+        // Wait longer for the frappe-react-sdk to update all components
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 1000); // Increased delay to ensure state propagation
+      }
     } catch (error) {
       console.error('Login error:', error);
       if (error instanceof Error) {

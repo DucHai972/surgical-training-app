@@ -157,36 +157,153 @@ def get_session_details(session_name):
         videos = []
         missing_files = []
         
-        # Hardcode the 3 compressed videos for all sessions - served locally for better seeking
-        hardcoded_videos = [
-            {
-                "title": "Camera 1",
-                "description": "Main surgical camera view",
-                "video_file": "http://localhost:8080/assets/surgical_training/frontend/Compressed_cam1.mp4",
-                "duration": 0  # Duration will be determined by video player (0 = auto-detect)
-            },
-            {
-                "title": "Camera 2", 
-                "description": "Secondary surgical camera view",
-                "video_file": "http://localhost:8080/assets/surgical_training/frontend/Compressed_cam2.mp4",
-                "duration": 0
-            },
-            {
-                "title": "Patient Monitor",
-                "description": "Patient monitoring display",
-                "video_file": "http://localhost:8080/assets/surgical_training/frontend/Compressed_monitor.mp4", 
-                "duration": 0
-            }
-        ]
+        # Get videos from the session's video table
+        print(f"🎬 DEBUG: Processing {len(session.videos)} videos for session '{session_name}'")
         
-        videos = hardcoded_videos
+        for i, video_row in enumerate(session.videos):
+            video_file_url = video_row.video_file
+            
+            print(f"🎬 DEBUG: Video {i+1}/{len(session.videos)}:")
+            print(f"   Title: '{video_row.title}'")
+            print(f"   Original file_url: '{video_file_url}'")
+            
+            # Auto-fix corrupted filenames based on video title and detect corruption patterns
+            original_file = video_file_url
+            
+            # Standard mapping for known titles
+            if video_row.title == "Camera 1":
+                corrected_file = "/files/Compressed_cam1.mp4"
+                print(f"   ✅ Mapped Camera 1 -> {corrected_file}")
+            elif video_row.title == "Camera 2": 
+                corrected_file = "/files/Compressed_cam2.mp4"
+                print(f"   ✅ Mapped Camera 2 -> {corrected_file}")
+            elif video_row.title == "Camera Monitor":
+                corrected_file = "/files/Compressed_monitor.mp4"
+                print(f"   ✅ Mapped Camera Monitor -> {corrected_file}")
+            elif video_row.title == "Patient Monitor":
+                corrected_file = "/files/Compressed_monitor.mp4"
+                print(f"   ✅ Mapped Patient Monitor -> {corrected_file}")
+            else:
+                print(f"   ⚠️ Unknown title '{video_row.title}', checking for corruption...")
+                # For unknown titles, check if the filename appears corrupted
+                corrected_file = video_file_url
+                
+                # Check if the file actually exists, if not try to map to an existing one
+                if video_file_url and isinstance(video_file_url, str):
+                    # Build full path to check if file exists
+                    site_path = frappe.utils.get_site_path()
+                    
+                    if video_file_url.startswith('/files/'):
+                        filename = video_file_url.replace('/files/', '')
+                    elif video_file_url.startswith('files/'):
+                        filename = video_file_url.replace('files/', '')
+                    else:
+                        filename = video_file_url.split('/')[-1]
+                    
+                    full_path = os.path.join(site_path, 'public', 'files', filename)
+                    
+                    if not os.path.exists(full_path):
+                        print(f"   ❌ File does not exist: {full_path}")
+                        print(f"   ⚠️ Video file missing - user should upload or check filename")
+                        
+                        # Only apply minimal auto-correction for obviously corrupted names
+                        import re
+                        if re.search(r'(cam1|cam2|monitor)[a-f0-9]{6,}\.mp4', video_file_url, re.IGNORECASE):
+                            # Only fix files with 6+ extra characters (clear corruption)
+                            if 'cam1' in video_file_url.lower():
+                                corrected_file = "/files/Compressed_cam1.mp4"
+                                print(f"   🔧 Severe corruption detected, fixed to cam1: {corrected_file}")
+                            elif 'cam2' in video_file_url.lower():
+                                corrected_file = "/files/Compressed_cam2.mp4"
+                                print(f"   🔧 Severe corruption detected, fixed to cam2: {corrected_file}")
+                            elif 'monitor' in video_file_url.lower():
+                                corrected_file = "/files/Compressed_monitor.mp4"
+                                print(f"   🔧 Severe corruption detected, fixed to monitor: {corrected_file}")
+                        else:
+                            # Keep original for user to fix manually
+                            print(f"   ⚠️ No auto-correction applied - manual fix needed")
+                    else:
+                        print(f"   ✅ File exists, keeping original: {corrected_file}")
+            
+            # Use corrected filename if original is corrupted
+            if corrected_file != original_file:
+                print(f"   🔧 CORRECTION NEEDED: '{original_file}' -> '{corrected_file}'")
+                safe_log_error(f"Auto-corrected video filename for '{video_row.title}': '{original_file}' -> '{corrected_file}'")
+                video_file_url = corrected_file
+                
+                # Permanently fix the database record
+                try:
+                    video_row.video_file = corrected_file
+                    session.save()
+                    frappe.db.commit()
+                    print(f"   💾 Database record permanently fixed for '{video_row.title}'")
+                    safe_log_error(f"Permanently fixed database record for '{video_row.title}'")
+                except Exception as fix_error:
+                    print(f"   ❌ Failed to fix database record: {str(fix_error)}")
+                    safe_log_error(f"Failed to fix database record: {str(fix_error)}")
+            else:
+                print(f"   ✅ No correction needed")
+            
+            # If video_file is a file attachment, convert to proper serving URL
+            print(f"   🔗 Converting to serving URL...")
+            print(f"   Input video_file_url: '{video_file_url}'")
+            
+            if video_file_url and not video_file_url.startswith('/api/method/'):
+                # Extract filename from file path
+                if video_file_url.startswith('/files/'):
+                    filename = video_file_url.replace('/files/', '')
+                    print(f"   📁 Extracted filename from /files/ path: '{filename}'")
+                elif video_file_url.startswith('files/'):
+                    filename = video_file_url.replace('files/', '')
+                    print(f"   📁 Extracted filename from files/ path: '{filename}'")
+                else:
+                    filename = video_file_url.split('/')[-1]  # Get last part of path
+                    print(f"   📁 Extracted filename from path end: '{filename}'")
+                
+                # Create proper serving URL with range request support
+                video_file_url = f"/api/method/surgical_training.api.video.serve_video?filename={filename}"
+                print(f"   🌐 Final serving URL: '{video_file_url}'")
+            else:
+                print(f"   ⚠️ Already a serving URL or empty: '{video_file_url}'")
+            
+            # Validate that the video file exists (use corrected filename for validation)
+            file_exists, full_path = validate_file_exists(video_file_url.replace('/api/method/surgical_training.api.video.serve_video?filename=', '/files/') if video_file_url.startswith('/api/method/') else video_file_url)
+            if not file_exists:
+                missing_files.append(f"Video '{video_row.title}': {video_file_url}")
+                continue  # Skip this video if file doesn't exist
+            
+            video_data = {
+                "title": video_row.title,
+                "description": video_row.description or "",
+                "video_file": video_file_url,
+                "duration": video_row.duration or 0  # 0 = auto-detect duration
+            }
+            print(f"   📦 Final video_data created:")
+            print(f"      title: '{video_data['title']}'")
+            print(f"      video_file: '{video_data['video_file']}'")
+            print(f"   ➕ Adding to videos array...")
+            videos.append(video_data)
+            print(f"   ✅ Video {i+1} processing complete\n")
+        
+        # If no videos found in session, show a helpful message
+        if not videos:
+            print(f"🚨 NO VIDEOS FOUND for session '{session_name}'")
+            return {
+                "message": "Error", 
+                "error": f"No videos found for session '{session_name}'. Please add videos to this session in the admin panel."
+            }
+        
+        print(f"🎬 SUMMARY: Returning {len(videos)} videos for session '{session_name}':")
+        for i, video in enumerate(videos):
+            print(f"   {i+1}. '{video['title']}' -> '{video['video_file']}'")
+        print("=" * 80)
         
         # Get comments for this session - filter to only include comments for current video titles
         user_email = frappe.session.user
         is_admin = user_email == "administrator@gmail.com"
         
         # Get list of current video titles to filter comments
-        current_video_titles = [video["title"] for video in hardcoded_videos]
+        current_video_titles = [video["title"] for video in videos]
         
         if is_admin:
             # Admin can see all comments, but only for current videos
@@ -196,7 +313,7 @@ def get_session_details(session_name):
                     "session": session_name,
                     "video_title": ["in", current_video_titles]  # Only comments for current videos
                 },
-                fields=["name", "doctor", "video_title", "timestamp", "comment_text", "created_at"],
+                fields=["name", "doctor", "video_title", "timestamp", "comment_text", "duration", "comment_type", "created_at"],
                 order_by="created_at desc"
             )
         else:
@@ -219,7 +336,7 @@ def get_session_details(session_name):
                     "doctor": ["in", possible_doctor_names],
                     "video_title": ["in", current_video_titles]  # Only comments for current videos
                 },
-                fields=["name", "doctor", "video_title", "timestamp", "comment_text", "created_at"],
+                fields=["name", "doctor", "video_title", "timestamp", "comment_text", "duration", "comment_type", "created_at"],
                 order_by="created_at desc"
             )
         

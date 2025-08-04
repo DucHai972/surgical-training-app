@@ -6,9 +6,15 @@ export default {
 	'^/(?!assets/surgical_training/frontend)(app|api|assets|files|private)': {
 		target: `http://127.0.0.1:${webserver_port}`,
 		ws: true,
+		changeOrigin: true,
+		secure: false,
 		router: function(req) {
-			const site_name = req.headers.host.split(':')[0];
-			return `http://${site_name}:${webserver_port}`;
+			// Always use localhost for development to avoid DNS issues
+			return `http://localhost:${webserver_port}`;
+		},
+		onProxyReq: (proxyReq, req, res) => {
+			// Set Host header to match target
+			proxyReq.setHeader('Host', `localhost:${webserver_port}`);
 		}
 	}
 };

@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-28 06:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "session",
+  "assigned_user",
+  "assigned_by",
+  "assignment_date",
+  "section_break_1",
+  "doctor_status",
+  "started_at",
+  "completed_at",
+  "progress_notes",
+  "total_comments"
+ ],
+ "fields": [
+  {
+   "fieldname": "session",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Session",
+   "options": "Session",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assigned_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assigned User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assigned_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assigned By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assignment_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Assignment Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break",
+   "label": "Doctor Progress Tracking"
+  },
+  {
+   "fieldname": "doctor_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Not Started\nIn Progress\nCompleted",
+   "default": "Not Started",
+   "in_list_view": 1,
+   "description": "Current status of this session for the assigned doctor"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "description": "When the doctor started working on this session"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "description": "When the doctor completed this session"
+  },
+  {
+   "fieldname": "progress_notes",
+   "fieldtype": "Text",
+   "label": "Progress Notes",
+   "description": "Doctor's notes about their progress on this session"
+  },
+  {
+   "fieldname": "total_comments",
+   "fieldtype": "Int",
+   "label": "Total Comments",
+   "read_only": 1,
+   "default": "0",
+   "description": "Total number of comments made by this doctor on this session"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-28 06:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Surgical Training",
+ "name": "Session Assignment",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Physician",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "session",
+ "track_changes": 1
+} 
