@@ -1,159 +1,60 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useFrappeGetCall, useFrappePostCall, useFrappeAuth } from 'frappe-react-sdk';
+import { Link } from 'react-router-dom';
+import { useFrappeGetCall, useFrappePostCall } from 'frappe-react-sdk';
 import toast from 'react-hot-toast';
-import { Button } from '../components/ui/button';
+import { Button } from '../../components/ui/button';
 
-import VideoList from '../components/VideoList';
-import CustomVideoPlayer from '../components/CustomVideoPlayer';
-import { isCurrentUserAdmin } from '../utils/api';
+import VideoList from '../../components/VideoList';
+import CustomVideoPlayer from '../../components/CustomVideoPlayer';
 
-import { 
-  ArrowLeft, MessageSquare, Clock, Video, Download, Send, Eye, Calendar, Users, FileText, 
-  Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, 
-  ClipboardCheck, Target, Maximize2, Columns, Grid, AlertTriangle, GraduationCap, Play, Square 
-} from 'lucide-react';
+import { ArrowLeft, MessageSquare, Clock, Video as VideoIcon, Download, Send, Eye, Calendar, Users, FileText, Mic, Zap, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, Trash2, Edit3, Save, X, ClipboardCheck, Target, Maximize2, Columns, AlertTriangle, GraduationCap, Play, Square, RefreshCw, SkipForward, Crown } from 'lucide-react';
 
-// TypeScript declarations for Web Speech API
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
+// Import types and utilities
+import type {
+  Video,
+  Comment,
+  CustomTemplate,
+  VideoPlayerState,
+  ActiveLabel,
+  EvaluationData,
+  SpeechRecognition,
+  SpeechRecognitionEvent,
+  SpeechRecognitionErrorEvent
+} from './types/session.types';
+import { formatTime, formatDate } from './utils/time.utils';
+import { isEvaluationComment } from './utils/comment.utils';
+import { getColorClasses, getEvaluationLabel, getStatusColor } from './utils/session.utils';
+import { canDeleteComment, canEditComment } from './utils/permissions.utils';
+
+// Import hooks and components
+import { useSessionData } from './hooks/useSessionData';
+// import { SessionHeader } from './components/Layout/SessionHeader'; // TODO: Use SessionHeader component in render
+
+
+interface SessionDetailMainProps {
+  sessionName: string | null;
+  authUser: string | null;
 }
 
-interface SpeechRecognitionEvent {
-  resultIndex: number;
-  results: {
-    [key: number]: {
-      [key: number]: {
-        transcript: string;
-      };
-      isFinal: boolean;
-      length: number;
-    };
-    length: number;
-  };
-}
-
-interface SpeechRecognitionErrorEvent {
-  error: string;
-  message?: string;
-}
-
-interface SpeechRecognition {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  onstart: () => void;
-  onend: () => void;
-  start: () => void;
-  stop: () => void;
-}
-
-interface Video {
-  title: string;
-  description: string;
-  video_file: string;
-  duration: number;
-}
-
-interface Comment {
-  name: string;
-  doctor: string;
-  doctor_name?: string;
-  video_title: string;
-  timestamp: number;
-  duration?: number;
-  comment_type?: string;
-  comment_text: string;
-  created_at: string;
-}
-
-interface CustomTemplate {
-  name: string;
-  title: string;
-  content: string;
-  color: string;
-  emoji: string;
-  created: string;
-  modified: string;
-}
-
-interface VideoPlayerState {
-  isPlaying: boolean;
-  currentTime: number;
-  newComment: string;
-}
-
-interface ActiveLabel {
-  id: string;
-  videoTitle: string;
-  startTime: number;
-  comment: string;
-  type: string;
-  createdAt: number;
-}
-
-interface SessionInfo {
-    name: string;
-    title: string;
-    description: string;
-    session_date: string;
-    status: string;
-}
-
-interface SessionData {
-  session: SessionInfo;
-  videos: Video[];
-  comments: Comment[];
-}
-
-interface EvaluationData {
-  identification: string;
-  situation: string;
-  history: string;
-  examination: string;
-  assessment: string;
-  recommendation: string;
-  grs: string;
-  comment: string;
-}
-
-const SessionDetail = () => {
-  const { sessionName } = useParams<{ sessionName?: string }>();
+export const SessionDetailMain: React.FC<SessionDetailMainProps> = ({ sessionName, authUser }) => {
+  console.log('🔧 DEBUG SessionDetailMain: Component rendered with props:', { sessionName, authUser });
   
-  // Show error if no sessionName is provided
-  if (!sessionName) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
-        <div className="text-center space-y-4">
-          <AlertCircle className="h-16 w-16 text-red-500 mx-auto" />
-          <h2 className="text-2xl font-bold text-gray-900">Session Not Found</h2>
-          <p className="text-gray-600">The session you're looking for doesn't exist or the URL is invalid.</p>
-          <Link to="/">
-            <Button className="mt-4">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Home
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-  
-  const [sessionData, setSessionData] = useState<SessionData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // All useState hooks must be called before any early returns or conditional logic
   const [currentVideo, setCurrentVideo] = useState<Video | null>(null);
   const [videoPlayerStates, setVideoPlayerStates] = useState<Map<string, VideoPlayerState>>(new Map());
   const [comments, setComments] = useState<Comment[]>([]);
   const [layout, setLayout] = useState<'single' | 'side-by-side'>('single');
-  const [viewerVideos, setViewerVideos] = useState<Video[]>([]);
-  const [labelingVideo, setLabelingVideo] = useState<Video | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Multi-video state management
+  const [activeVideos, setActiveVideos] = useState<Video[]>([]); // Videos currently displayed in grid
+  const [timelineVideo, setTimelineVideo] = useState<Video | null>(null); // Video used for comments/labels
+  
+  // Video synchronization state
+  const [isPlayPauseSync, setIsPlayPauseSync] = useState<boolean>(true); // Sync play/pause across videos
+  const [isSeekSync, setIsSeekSync] = useState<boolean>(false); // Sync seek/time across videos
+  const [masterVideo, setMasterVideo] = useState<Video | null>(null); // Master video for sync
+  // const maxVideosInGrid = 4; // Maximum videos that can fit (will be used in later tasks)
   const [showQuickComment, setShowQuickComment] = useState(false);
   const [quickCommentTimestamp] = useState(0);
   const [isListening, setIsListening] = useState(false);
@@ -197,7 +98,78 @@ const SessionDetail = () => {
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [labelStatusMessage, setLabelStatusMessage] = useState('');
   const [isbarValue, setIsbarValue] = useState('');
+  const [showVideoSelection, setShowVideoSelection] = useState(false);
   const videoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
+  const masterVideoRef = useRef<HTMLDivElement | null>(null);
+  const [masterVideoHeight, setMasterVideoHeight] = useState<number>(0);
+  
+  // Use the session data hook
+  const { 
+    sessionData: hookSessionData, 
+    error: sessionError, 
+    hasAccess, 
+    isAccessPending, 
+    isLoading: isSessionLoading, 
+    refreshSession
+  } = useSessionData({ sessionName, authUser });
+  
+  console.log('🔧 DEBUG SessionDetailMain: Hook returned:', {
+    hookSessionData: !!hookSessionData,
+    sessionError: !!sessionError,
+    hasAccess,
+    isAccessPending,
+    isSessionLoading
+  });
+  
+  // Remove early return - handle this after all hooks
+  
+  // Use sessionData from hook directly instead of local state
+  const sessionData = hookSessionData;
+  const error = sessionError;
+  
+  console.log('🔧 DEBUG SessionDetailMain: Final data assignment:', {
+    sessionData: !!sessionData,
+    error: !!error,
+    sessionDataVideos: sessionData?.videos?.length || 0,
+    sessionDataSession: sessionData?.session?.name || 'none'
+  });
+
+  // Show error if no sessionName is provided - after all hooks
+  if (!sessionName) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
+        <div className="text-center space-y-4">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto" />
+          <h2 className="text-2xl font-bold text-gray-900">Session Not Found</h2>
+          <p className="text-gray-600">The session you're looking for doesn't exist or the URL is invalid.</p>
+          <Link to="/">
+            <Button className="mt-4">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Home
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Observe master video height changes for responsive additional videos
+  useEffect(() => {
+    if (!masterVideoRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { height } = entry.contentRect;
+        setMasterVideoHeight(height);
+      }
+    });
+
+    resizeObserver.observe(masterVideoRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [masterVideo]);
 
   // Debug and remove unwanted spacer elements
   useEffect(() => {
@@ -224,133 +196,7 @@ const SessionDetail = () => {
     return () => observer.disconnect();
   }, [comments]); // Re-run when comments change
 
-  // Get current user info
-  const { currentUser: authUser } = useFrappeAuth();
 
-  // Helper function to check if user can delete a comment
-  const canDeleteComment = (_comment: Comment): boolean => {
-    if (!authUser) return false;
-    
-    // For now, we'll use a simpler approach - allow deletion if user is logged in
-    // The backend will handle the actual permission checking
-    // This is just for UI display purposes
-    return true; // Show delete button for all comments, backend will validate permissions
-  };
-
-  // Helper function to check if user can edit a comment
-  const canEditComment = (_comment: Comment): boolean => {
-    if (!authUser) return false;
-    
-    // For now, we'll use a simpler approach - allow editing if user is logged in
-    // The backend will handle the actual permission checking
-    // This is just for UI display purposes
-    return true; // Show edit button for all comments, backend will validate permissions
-  };
-
-  // Check user permissions for this session
-  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
-  const isAdmin = isCurrentUserAdmin(authUser || undefined);
-
-  // Check session access
-  useEffect(() => {
-    const checkAccess = async () => {
-      if (!authUser || !sessionName) {
-        setHasAccess(false);
-        return;
-      }
-
-      // Admin always has access
-      if (isAdmin) {
-        setHasAccess(true);
-        return;
-      }
-
-      try {
-        // Check if user has assigned sessions that include this one
-        const response = await fetch('/api/method/surgical_training.api.session_assignment.get_user_assigned_sessions', {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        const result = await response.json();
-        
-        if (result && result.message && result.message.message === 'Success') {
-          const assignedSessions = result.message.data;
-          const hasSessionAccess = assignedSessions.some((session: SessionInfo) => session.name === sessionName);
-          setHasAccess(hasSessionAccess);
-        } else {
-          setHasAccess(false);
-        }
-      } catch (error) {
-        console.error('Error checking session access:', error);
-        setHasAccess(false);
-      }
-    };
-
-    checkAccess();
-  }, [authUser, sessionName, isAdmin]);
-
-  // Fetch session data
-  const { 
-    data: apiResponse, 
-    error: apiError, 
-    isLoading: isLoadingSession,
-    mutate: refreshSession
-  } = useFrappeGetCall(
-    'surgical_training.api.session.get_session_details',
-    { session_name: sessionName },
-    undefined,
-    {
-      errorRetryCount: 1, // Reduce retry attempts
-      onError: (error) => {
-        console.error('Error loading session details:', error);
-        
-        // Enhanced debugging - log all error details
-        console.log('=== SESSION ERROR DETAILS ===');
-        console.log('HTTP Status:', error?.httpStatus);
-        console.log('Exception:', error?.exception);
-        console.log('Exc Type:', error?.exc_type);
-        console.log('Server Messages:', error?._server_messages);
-        console.log('Full Error Object:', JSON.stringify(error, null, 2));
-        
-        // Try to parse server messages for more details
-        if (error?._server_messages) {
-          try {
-            const messages = JSON.parse(error._server_messages);
-            console.log('Parsed Server Messages:', messages);
-            
-            // Look for the specific file error
-            messages.forEach((msg: any, index: number) => {
-              if (typeof msg === 'string') {
-                const parsedMsg = JSON.parse(msg);
-                console.log(`Message ${index}:`, parsedMsg);
-                if (parsedMsg.message?.includes('does not exist')) {
-                  console.log('🔍 FOUND FILE ERROR:', parsedMsg.message);
-                }
-              }
-            });
-          } catch (e) {
-            console.log('Could not parse server messages:', e);
-          }
-        }
-        
-        // Handle specific error types with more detailed messages
-        if (error?.httpStatus === 417) {
-          // Check if it's specifically a file not found issue
-          if (error?._server_messages?.includes('does not exist')) {
-            setError('Session videos cannot be loaded because some video files are missing from the server. Please check that all video files are properly uploaded.');
-          } else {
-            setError('Session data could not be loaded due to server configuration issues. The API method may not be properly configured or whitelisted.');
-          }
-        } else if (error?.exception?.includes('CharacterLengthExceededError')) {
-          setError('The server encountered an error while logging issues with this session. This is typically caused by very long file paths or error messages. Please contact your administrator.');
-        } else if (error?.exception?.includes('not whitelisted')) {
-          setError('Access denied. This API method is not whitelisted. Please contact your administrator.');
-        } else {
-          setError('Failed to load session data. Please try again or contact support if the problem persists.');
-        }
-      }
-    }
-  );
 
   // API for adding comments
   const { call: addComment, loading: isAddingComment } = useFrappePostCall(
@@ -415,11 +261,12 @@ const SessionDetail = () => {
           
           setVoiceTranscript(finalTranscript + interimTranscript);
           
-          // Update the current video's comment with the transcript
-          if (currentVideo && finalTranscript) {
-            const currentComment = videoPlayerStates.get(currentVideo.title)?.newComment || '';
+          // Update the target video's comment with the transcript
+          const targetVideo = getTargetVideoForComments();
+          if (targetVideo && finalTranscript) {
+            const currentComment = videoPlayerStates.get(targetVideo.title)?.newComment || '';
             const newComment = currentComment ? `${currentComment} ${finalTranscript}` : finalTranscript;
-            handleCommentChange(currentVideo.title, newComment);
+            handleCommentChange(targetVideo.title, newComment);
           }
         };
         
@@ -535,10 +382,11 @@ const SessionDetail = () => {
 
   // Insert voice transcript into comment
   const insertVoiceTranscript = () => {
-    if (currentVideo && voiceTranscript.trim()) {
-      const currentComment = videoPlayerStates.get(currentVideo.title)?.newComment || '';
+    const targetVideo = getTargetVideoForComments();
+    if (targetVideo && voiceTranscript.trim()) {
+      const currentComment = videoPlayerStates.get(targetVideo.title)?.newComment || '';
       const newComment = currentComment ? `${currentComment} ${voiceTranscript.trim()}` : voiceTranscript.trim();
-      handleCommentChange(currentVideo.title, newComment);
+      handleCommentChange(targetVideo.title, newComment);
       setVoiceTranscript('');
       toast.success('Voice transcript added to comment');
     }
@@ -563,10 +411,11 @@ const SessionDetail = () => {
           }
           break;
         case 'e':
-          // End the most recent active label for current video
-          if (currentVideo && labelMode === 'start_end') {
+          // End the most recent active label for target video
+          const targetVideo = getTargetVideoForComments();
+          if (targetVideo && labelMode === 'start_end') {
             e.preventDefault();
-            const activeLabelsForVideo = getActiveLabelsForVideo(currentVideo.title);
+            const activeLabelsForVideo = getActiveLabelsForVideo(targetVideo.title);
             if (activeLabelsForVideo.length > 0) {
               const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
               handleEndLabel(mostRecentLabel.id);
@@ -577,32 +426,35 @@ const SessionDetail = () => {
           // Submit comment when Enter is pressed (with Ctrl/Cmd)
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            if (currentVideo) {
-              const comment = videoPlayerStates.get(currentVideo.title)?.newComment.trim();
+            const targetVideo = getTargetVideoForComments();
+            if (targetVideo) {
+              const comment = videoPlayerStates.get(targetVideo.title)?.newComment.trim();
               if (comment) {
                 if (labelMode === 'start_end') {
-                  handleStartLabel(currentVideo.title, comment, annotationCommentType);
+                  handleStartLabel(targetVideo.title, comment, annotationCommentType);
                 } else {
-                  const currentTime = videoPlayerStates.get(currentVideo.title)?.currentTime || 0;
-                  handleAddComment(currentVideo.title, currentTime, annotationDuration, annotationCommentType);
+                  const currentTime = videoPlayerStates.get(targetVideo.title)?.currentTime || 0;
+                  handleAddComment(targetVideo.title, currentTime, annotationDuration, annotationCommentType);
                 }
               }
             }
           }
           break;
         case ' ':
-          if (currentVideo) {
+          const targetVideoForPlayPause = getTargetVideoForComments();
+          if (targetVideoForPlayPause) {
             e.preventDefault();
-            const videoState = videoPlayerStates.get(currentVideo.title);
+            const videoState = videoPlayerStates.get(targetVideoForPlayPause.title);
             if (videoState) {
-              handlePlayPause(currentVideo.title, !videoState.isPlaying);
+              handlePlayPause(targetVideoForPlayPause.title, !videoState.isPlaying);
             }
           }
           break;
         case 'escape':
           // Clear comment input
-          if (currentVideo) {
-            handleCommentChange(currentVideo.title, '');
+          const targetVideoForEscape = getTargetVideoForComments();
+          if (targetVideoForEscape) {
+            handleCommentChange(targetVideoForEscape.title, '');
           }
           break;
       }
@@ -613,63 +465,51 @@ const SessionDetail = () => {
   }, [currentVideo, videoPlayerStates, labelMode, activeLabels, annotationCommentType, annotationDuration]);
 
   useEffect(() => {
-    if (apiResponse && typeof apiResponse === 'object' && apiResponse.message) {
-      // Handle the nested structure from Frappe API
-      const responseData = apiResponse.message;
+    if (sessionData) {
+      console.log('🎬 FRONTEND: Received session data from hook:', sessionData);
+      console.log('🎬 FRONTEND: Videos array:', sessionData.videos);
       
-      console.log('🎬 FRONTEND SESSION DATA DEBUG:', responseData);
-      
-      // Make sure responseData has the expected format
-      if (responseData && responseData.message === 'Success' && responseData.data) {
-        console.log('🎬 FRONTEND: Received session data:', responseData.data);
-        console.log('🎬 FRONTEND: Videos array:', responseData.data.videos);
-        
-        // Log each video in detail
-        if (responseData.data.videos && Array.isArray(responseData.data.videos)) {
-          responseData.data.videos.forEach((video: Video, index: number) => {
-            console.log(`🎬 FRONTEND Video ${index + 1}:`, {
-              title: video.title,
-              video_file: video.video_file,
-              description: video.description
-            });
+      // Log each video in detail
+      if (sessionData.videos && Array.isArray(sessionData.videos)) {
+        sessionData.videos.forEach((video: Video, index: number) => {
+          console.log(`🎬 FRONTEND Video ${index + 1}:`, {
+            title: video.title,
+            video_file: video.video_file,
+            description: video.description
           });
+        });
+      }
+      
+      setComments(Array.isArray(sessionData.comments) ? sessionData.comments : []);
+      
+      // Set first video as current if available, but preserve current video if it exists
+      if (sessionData.videos && Array.isArray(sessionData.videos) && sessionData.videos.length > 0) {
+        // Only set to first video if no current video is set, or if current video is not in the new data
+        if (!currentVideo || !sessionData.videos.find((v: Video) => v.title === currentVideo.title)) {
+          console.log('🎬 FRONTEND: Setting current video to:', sessionData.videos[0]);
+          setCurrentVideo(sessionData.videos[0]);
         }
         
-        setSessionData(responseData.data);
-        setComments(Array.isArray(responseData.data.comments) ? responseData.data.comments : []);
-        
-        // Set first video as current if available, but preserve current video if it exists
-        if (responseData.data.videos && Array.isArray(responseData.data.videos) && responseData.data.videos.length > 0) {
-          // Only set to first video if no current video is set, or if current video is not in the new data
-          if (!currentVideo || !responseData.data.videos.find((v: Video) => v.title === currentVideo.title)) {
-            console.log('🎬 FRONTEND: Setting current video to:', responseData.data.videos[0]);
-            setCurrentVideo(responseData.data.videos[0]);
-          }
-          
-          // Initialize player states for all videos, preserving existing states
-          setVideoPlayerStates(prevStates => {
-            const newStates = new Map<string, VideoPlayerState>();
-            responseData.data.videos.forEach((video: Video) => {
-              const existingState = prevStates.get(video.title);
-              newStates.set(video.title, {
-                isPlaying: existingState?.isPlaying || false,
-                currentTime: existingState?.currentTime || 0,
-                newComment: existingState?.newComment || ''
-              });
+        // Initialize player states for all videos, preserving existing states
+        setVideoPlayerStates(prevStates => {
+          const newStates = new Map<string, VideoPlayerState>();
+          sessionData.videos.forEach((video: Video) => {
+            const existingState = prevStates.get(video.title);
+            newStates.set(video.title, {
+              isPlaying: existingState?.isPlaying || false,
+              currentTime: existingState?.currentTime || 0,
+              newComment: existingState?.newComment || ''
             });
-            return newStates;
           });
-        }
-      } else {
-        console.error('Unexpected API response format:', responseData);
+          return newStates;
+        });
       }
     }
     
-    if (apiError) {
-      toast.error('Failed to load session details');
-      console.error('Error loading session details:', apiError);
+    if (error) {
+      console.error('Session data error from hook:', error);
     }
-  }, [apiResponse, apiError]);
+  }, [sessionData, error, currentVideo]);
 
   // Load custom templates
   useEffect(() => {
@@ -731,7 +571,7 @@ const SessionDetail = () => {
     });
   };
 
-  const handlePlayPause = (videoTitle: string, playing: boolean) => {
+  const handlePlayPause = (videoTitle: string, playing: boolean, skipSync: boolean = false) => {
     setVideoPlayerStates(prevStates => {
       const newStates = new Map(prevStates);
       const currentState = newStates.get(videoTitle) || {
@@ -745,9 +585,62 @@ const SessionDetail = () => {
         isPlaying: playing
       });
       
+      // Sync play/pause across other videos in side-by-side mode
+      if (layout === 'side-by-side' && isPlayPauseSync && !skipSync && activeVideos.length > 1) {
+        activeVideos.forEach(video => {
+          if (video.title !== videoTitle) {
+            const videoState = newStates.get(video.title) || {
+              isPlaying: false,
+              currentTime: 0,
+              newComment: ''
+            };
+            newStates.set(video.title, {
+              ...videoState,
+              isPlaying: playing
+            });
+          }
+        });
+      }
+      
       return newStates;
     });
   };
+
+  // Handle time synchronization across videos (will be used when integrating with video player)
+  // const handleTimeSync = (videoTitle: string, newTime: number, skipSync: boolean = false) => {
+  //   setVideoPlayerStates(prevStates => {
+  //     const newStates = new Map(prevStates);
+  //     const currentState = newStates.get(videoTitle) || {
+  //       isPlaying: false,
+  //       currentTime: 0,
+  //       newComment: ''
+  //     };
+  //     
+  //     newStates.set(videoTitle, {
+  //       ...currentState,
+  //       currentTime: newTime
+  //     });
+  //     
+  //     // Sync time across other videos in side-by-side mode if seek sync is enabled
+  //     if (layout === 'side-by-side' && isSeekSync && !skipSync && activeVideos.length > 1) {
+  //       activeVideos.forEach(video => {
+  //         if (video.title !== videoTitle) {
+  //           const videoState = newStates.get(video.title) || {
+  //             isPlaying: false,
+  //             currentTime: 0,
+  //             newComment: ''
+  //           };
+  //           newStates.set(video.title, {
+  //             ...videoState,
+  //             currentTime: newTime
+  //           });
+  //         }
+  //       });
+  //     }
+  //     
+  //     return newStates;
+  //   });
+  // };
 
   const handleCommentChange = (videoTitle: string, comment: string) => {
     setVideoPlayerStates(prevStates => {
@@ -776,52 +669,33 @@ const SessionDetail = () => {
     setLayout('single');
   };
 
-  const formatTime = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
-  };
 
-  // Format date for comment timestamps
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }).format(date);
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return dateString;
-    }
-  };
 
   // Floating comment functionality
   const handleFloatingComment = (timestamp?: number) => {
-    if (currentVideo) {
-      const videoState = videoPlayerStates.get(currentVideo.title);
+    const targetVideo = getTargetVideoForComments();
+    if (targetVideo) {
+      const videoState = videoPlayerStates.get(targetVideo.title);
       if (videoState) {
         setFloatingCommentTimestamp(timestamp || videoState.currentTime);
         // Don't reset annotation settings - preserve user preferences
         setShowFloatingComment(true);
         // Pause video for commenting
-        handlePlayPause(currentVideo.title, false);
+        handlePlayPause(targetVideo.title, false);
       }
     }
   };
 
   // New label system functions
   const handleStartLabel = (videoTitle: string, comment: string, type: string = 'positive') => {
-    if (!currentVideo) return;
+    const targetVideo = getTargetVideoForComments();
+    if (!targetVideo) return;
     
     const videoState = videoPlayerStates.get(videoTitle);
     if (!videoState) return;
 
     const newLabel: ActiveLabel = {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       videoTitle,
       startTime: videoState.currentTime,
       comment,
@@ -838,9 +712,10 @@ const SessionDetail = () => {
   };
 
   const handleEndLabel = async (labelId: string) => {
-    if (!currentVideo) return;
+    const targetVideo = getTargetVideoForComments();
+    if (!targetVideo) return;
     
-    const videoState = videoPlayerStates.get(currentVideo.title);
+    const videoState = videoPlayerStates.get(targetVideo.title);
     if (!videoState) return;
 
     const activeLabel = activeLabels.find(label => label.id === labelId);
@@ -1255,53 +1130,6 @@ const SessionDetail = () => {
     setEvaluationExpanded({});
   };
 
-  const getEvaluationLabel = (category: string, value: string) => {
-    const labels: {[key: string]: {[key: string]: string}} = {
-      identification: {
-        '0': 'Requires direct prompting',
-        '1': 'Introduces after hint',
-        '2': 'Incomplete introduction',
-        '3': 'Complete introduction'
-      },
-      situation: {
-        '0': 'Unable to identify problems',
-        '1': 'After extended prompting',
-        '2': 'With few prompts',
-        '3': 'Unprompted identification'
-      },
-      history: {
-        '0': 'Unstructured/irrelevant',
-        '1': 'Needs clarification',
-        '2': 'Few questions needed',
-        '3': 'Comprehensive history'
-      },
-      examination: {
-        '0': 'Omitted/irrelevant',
-        '1': 'Needs clarification',
-        '2': 'Few questions needed',
-        '3': 'Comprehensive observations'
-      },
-      assessment: {
-        '0': 'No logical assessment',
-        '1': 'After extended questioning',
-        '2': 'After minimal questioning',
-        '3': 'Comprehensive assessment'
-      },
-      recommendation: {
-        '0': 'No clear recommendation',
-        '1': 'After extended questioning',
-        '2': 'After minimal questioning',
-        '3': 'Without questioning'
-      },
-      grs: {
-        '0': 'Not confident',
-        '1': 'Extended questioning',
-        '2': 'Some questioning',
-        '3': 'Little/no questioning'
-      }
-    };
-    return labels[category]?.[value] || 'Not selected';
-  };
 
   const handleAddEvaluation = async () => {
     if (!currentVideo) return;
@@ -1368,9 +1196,15 @@ const SessionDetail = () => {
       // Store current time before adding evaluation
       const currentTime = floatingCommentTimestamp;
       
+      const targetVideo = getTargetVideoForComments();
+      if (!targetVideo) {
+        toast.error('No target video selected for evaluation');
+        return;
+      }
+
       const response = await addComment({
         session: sessionName,
-        video_title: currentVideo.title,
+        video_title: targetVideo.title,
         timestamp: currentTime,
         comment_text: finalSummary
       });
@@ -1418,24 +1252,7 @@ const SessionDetail = () => {
     }
   };
 
-  const getColorClasses = (color: string) => {
-    const colorMap: { [key: string]: string } = {
-      blue: 'text-blue-700 border-blue-200 hover:bg-blue-50',
-      green: 'text-green-700 border-green-200 hover:bg-green-50',
-      yellow: 'text-yellow-700 border-yellow-200 hover:bg-yellow-50',
-      red: 'text-red-700 border-red-200 hover:bg-red-50',
-      purple: 'text-purple-700 border-purple-200 hover:bg-purple-50',
-      indigo: 'text-indigo-700 border-indigo-200 hover:bg-indigo-50',
-      pink: 'text-pink-700 border-pink-200 hover:bg-pink-50',
-      gray: 'text-gray-700 border-gray-200 hover:bg-gray-50'
-    };
-    return colorMap[color] || colorMap.blue;
-  };
 
-  // Helper function to check if a comment is an evaluation
-  const isEvaluationComment = (comment: Comment) => {
-    return comment.comment_text.startsWith('[EVALUATION]');
-  };
 
   // Comment type categorization functions
   const getCommentType = (comment: Comment) => {
@@ -1558,11 +1375,95 @@ const SessionDetail = () => {
   const changeLayout = (newLayout: 'single' | 'side-by-side') => {
     setLayout(newLayout);
     
-    // Initialize side-by-side mode with first video for labeling
-    if (newLayout === 'side-by-side' && sessionData && sessionData.videos.length > 0) {
-      setLabelingVideo(sessionData.videos[0]);
-      setViewerVideos([]);
+    // Initialize active videos when switching to side-by-side
+    if (newLayout === 'side-by-side' && sessionData) {
+      if (activeVideos.length === 0) {
+        // Start with first 2 videos by default
+        const initialVideos = sessionData.videos.slice(0, 2);
+        setActiveVideos(initialVideos);
+        
+        // Set timeline video to current video or first video
+        if (!timelineVideo) {
+          setTimelineVideo(currentVideo || initialVideos[0] || null);
+        }
+        
+        // Set master video to first video by default
+        if (!masterVideo && initialVideos.length > 0) {
+          setMasterVideo(initialVideos[0]);
+          // Also set timeline video to master video
+          setTimelineVideo(initialVideos[0]);
+        }
+      } else {
+        // If activeVideos exist but no master video, set first active video as master
+        if (!masterVideo && activeVideos.length > 0) {
+          setMasterVideo(activeVideos[0]);
+          // Also set timeline video to master video
+          setTimelineVideo(activeVideos[0]);
+        }
+      }
     }
+  };
+
+  // Video grid management functions (will be used in next tasks)
+  /*
+  const addVideoToGrid = (video: Video) => {
+    if (activeVideos.length >= maxVideosInGrid) {
+      toast.error(`Maximum ${maxVideosInGrid} videos can be displayed at once`);
+      return;
+    }
+    
+    if (!activeVideos.find(v => v.title === video.title)) {
+      setActiveVideos(prev => [...prev, video]);
+      toast.success(`Added ${video.title} to grid`);
+    } else {
+      toast(`${video.title} is already in the grid`);
+    }
+  };
+
+  const removeVideoFromGrid = (video: Video) => {
+    if (activeVideos.length <= 1) {
+      toast.error('At least one video must remain in the grid');
+      return;
+    }
+    
+    setActiveVideos(prev => prev.filter(v => v.title !== video.title));
+    
+    // If removed video was the timeline video, switch to first remaining video
+    if (timelineVideo?.title === video.title) {
+      const remainingVideos = activeVideos.filter(v => v.title !== video.title);
+      setTimelineVideo(remainingVideos[0] || null);
+      toast(`Timeline switched to ${remainingVideos[0]?.title || 'none'}`);
+    }
+    
+    toast.success(`Removed ${video.title} from grid`);
+  };
+
+  const setVideoAsTimeline = (video: Video) => {
+    if (!activeVideos.find(v => v.title === video.title)) {
+      toast.error('Video must be in the grid to be used as timeline');
+      return;
+    }
+    
+    setTimelineVideo(video);
+    toast.success(`Timeline set to ${video.title}`);
+  };
+
+  // Calculate grid dimensions based on video count
+  const getGridDimensions = (videoCount: number) => {
+    if (videoCount <= 1) return { cols: 1, rows: 1 };
+    if (videoCount === 2) return { cols: 2, rows: 1 };
+    if (videoCount <= 4) return { cols: 2, rows: 2 };
+    if (videoCount <= 6) return { cols: 3, rows: 2 };
+    return { cols: 3, rows: 3 }; // Max 9 videos
+  };
+  */
+
+  // Helper function to get the video that should receive comments/labels
+  const getTargetVideoForComments = (): Video | null => {
+    if (layout === 'side-by-side') {
+      return masterVideo; // Use master video only in side-by-side mode
+    }
+    return currentVideo; // Use current video in single mode
   };
 
   // Sync all videos to the same timeline
@@ -1575,14 +1476,10 @@ const SessionDetail = () => {
     // Get the current time from the reference video
     const referenceTime = videoPlayerStates.get(referenceVideo.title)?.currentTime || 0;
     
-    // Get all videos to sync (based on current layout)
+    // Get all videos to sync (use activeVideos for side-by-side, all videos for single)
     let videosToSync: Video[] = [];
     if (layout === 'side-by-side') {
-      // Sync all viewer videos plus labeling video
-      videosToSync = [...viewerVideos];
-      if (labelingVideo) {
-        videosToSync.push(labelingVideo);
-      }
+      videosToSync = activeVideos;
     } else {
       toast.error('Sync is only available in Side by Side mode');
       return;
@@ -1662,6 +1559,37 @@ const SessionDetail = () => {
     }
   };
 
+  // Video selection handlers
+  const handleAddVideoToAdditional = (video: Video) => {
+    if (!masterVideo) {
+      toast.error('Please set a master video first');
+      return;
+    }
+    
+    if (video.title === masterVideo.title) {
+      toast.error('Cannot add master video to additional videos');
+      return;
+    }
+    
+    if (activeVideos.find(v => v.title === video.title)) {
+      toast(`${video.title} is already in the video list`);
+      return;
+    }
+    
+    setActiveVideos(prev => [...prev, video]);
+    toast.success(`Added ${video.title} to additional videos`);
+  };
+
+  const handleRemoveVideoFromAdditional = (video: Video) => {
+    if (video.title === masterVideo?.title) {
+      toast.error('Cannot remove master video');
+      return;
+    }
+    
+    setActiveVideos(prev => prev.filter(v => v.title !== video.title));
+    toast.success(`Removed ${video.title} from additional videos`);
+  };
+
   // Add handler to submit ISBAR evaluation as a comment
   const handleSubmitIsbarEvaluation = async (videoTitle: string) => {
     if (!annotationCommentType || isbarValue === '') return;
@@ -1719,21 +1647,10 @@ const SessionDetail = () => {
     setIsbarValue('');
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'active':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'completed':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
 
   // Check if access check is still pending
-  if (hasAccess === null) {
+  if (isAccessPending) {
+    console.log('🔧 DEBUG SessionDetailMain: Rendering access pending screen');
     return (
       <div className="flex justify-center items-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
         <div className="relative">
@@ -1745,7 +1662,8 @@ const SessionDetail = () => {
   }
 
   // Check if user has access to this session
-  if (hasAccess === false) {
+  if (!hasAccess) {
+    console.log('🔧 DEBUG SessionDetailMain: Rendering no access screen');
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-orange-50/50">
         <div className="text-center">
@@ -1767,12 +1685,13 @@ const SessionDetail = () => {
     );
   }
 
-  if (isLoadingSession && !apiResponse) {
+  if (isSessionLoading && !sessionData) {
+    console.log('🔧 DEBUG SessionDetailMain: Rendering loading screen - isSessionLoading:', isSessionLoading, 'sessionData:', !!sessionData);
     return (
       <div className="flex justify-center items-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
         <div className="text-center space-y-4">
           <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center animate-pulse mx-auto">
-            <Video className="w-8 h-8 text-white" />
+            <VideoIcon className="w-8 h-8 text-white" />
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold text-gray-900">Loading Session...</h2>
@@ -1785,6 +1704,7 @@ const SessionDetail = () => {
 
   // Show error state if there's an error
   if (error) {
+    console.log('🔧 DEBUG SessionDetailMain: Rendering error state - error:', error);
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
         <div className="text-center space-y-4 max-w-lg">
@@ -1802,7 +1722,6 @@ const SessionDetail = () => {
               </Button>
             </Link>
             <Button onClick={() => {
-              setError(null);
               refreshSession();
             }}>
               Try Again
@@ -1813,12 +1732,16 @@ const SessionDetail = () => {
     );
   }
 
-  if (!apiResponse || !currentVideo) {
+  if (!sessionData || !currentVideo) {
+    console.log('🔧 DEBUG SessionDetailMain: Rendering session not found - sessionData:', !!sessionData, 'currentVideo:', !!currentVideo, 'sessionData.videos:', sessionData?.videos?.length);
+    if (error) {
+      console.log('🔧 DEBUG SessionDetailMain: Error present:', error);
+    }
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/50">
         <div className="text-center">
           <div className="h-24 w-24 rounded-full bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center mb-6">
-            <Video size={40} className="text-red-600" />
+            <VideoIcon size={40} className="text-red-600" />
           </div>
           <h3 className="text-2xl font-bold text-gray-900 mb-2">Session Not Found</h3>
           <p className="text-gray-600 mb-6 max-w-md">
@@ -1836,401 +1759,6 @@ const SessionDetail = () => {
   }
 
 
-        {/* Video Section */}
-        <div className="video-section p-3 border-b border-gray-200 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">{video.title}</h3>
-          
-          {/* Video Player Container */}
-          <div className="w-full">
-            <div className="relative aspect-video">
-              {(() => {
-                const videoSrc = video.video_file && video.video_file.trim() 
-                  ? video.video_file
-                  : '/files/placeholder.mp4';
-                
-                console.log(`🎥 FRONTEND GRID VIDEO PLAYER RENDER:`, {
-                  title: video.title,
-                  raw_video_file: video.video_file,
-                  computed_src: videoSrc,
-                });
-                
-                return (
-                  <CustomVideoPlayer
-                    src={videoSrc}
-                    title={video.title}
-                    comments={videoComments.map(comment => ({
-                      ...comment,
-                      isEvaluation: isEvaluationComment(comment)
-                    }))}
-                    isPlaying={videoState.isPlaying}
-                    currentTime={videoState.currentTime}
-                    onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-                    onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-                    onSeek={(time) => handleSeek(video.title, time)}
-                  />
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Comments Panel */}
-        <section className="comments-panel flex-1 flex flex-col min-h-0" aria-labelledby={`grid-comments${index + 1}-title`}>
-          <h3 id={`grid-comments${index + 1}-title`} className="sr-only">Comments for {video.title}</h3>
-          
-          {/* Comment Form - Compact Design */}
-          <div className="comment-form bg-gray-50 p-3 border-b border-gray-200 flex-shrink-0">
-            {/* Top Row: Mode + ISBAR */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              {/* Labeling Mode */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Mode</label>
-                <div className="flex bg-white rounded border border-gray-200 text-xs">
-                  <button
-                    onClick={() => setLabelMode('start_end')}
-                    className={`flex-1 px-2 py-1 rounded-l transition-colors ${
-                      labelMode === 'start_end'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    Start/End
-                  </button>
-                  <button
-                    onClick={() => setLabelMode('duration')}
-                    className={`flex-1 px-2 py-1 rounded-r transition-colors ${
-                      labelMode === 'duration'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    Duration
-                  </button>
-                </div>
-              </div>
-
-              {/* ISBAR Select */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">ISBAR</label>
-                <select
-                  value={annotationCommentType}
-                  onChange={(e) => setAnnotationCommentType(e.target.value as any)}
-                  className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
-                >
-                  <option value="identification">🏥 Identification</option>
-                  <option value="situation">📊 Situation</option>
-                  <option value="background">📋 Background</option>
-                  <option value="assessment">🔍 Assessment</option>
-                  <option value="recommendation">💡 Recommendation</option>
-                  <option value="general">💬 General</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Duration selector (only in duration mode) */}
-            {labelMode === 'duration' && (
-              <div className="mb-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Duration</label>
-                <select
-                  value={annotationDuration}
-                  onChange={(e) => setAnnotationDuration(parseInt(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-gray-200 rounded"
-                >
-                  <option value={10}>10s</option>
-                  <option value={15}>15s</option>
-                  <option value={30}>30s</option>
-                  <option value={60}>1min</option>
-                  <option value={120}>2min</option>
-                  <option value={300}>5min</option>
-                </select>
-              </div>
-            )}
-
-            {/* Comment Textarea */}
-            <div className="mb-2">
-              <textarea
-                className="w-full h-16 px-2 py-1 text-xs border border-gray-200 rounded resize-none"
-                placeholder="Describe what you observe..."
-                value={videoPlayerStates.get(video.title)?.newComment || ''}
-                onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              />
-            </div>
-
-            {/* Quick Templates - Compact 4-column grid */}
-            <div className="grid grid-cols-4 gap-1 mb-2">
-              <button
-                onClick={() => handleCommentChange(video.title, '👍 Excellent technique demonstrated.')}
-                className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded hover:bg-green-200 transition-colors"
-                title="Positive feedback"
-              >
-                ✓
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '⚠️ Attention needed for safety.')}
-                className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded hover:bg-yellow-200 transition-colors"
-                title="Needs attention"
-              >
-                ⚠
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '❌ Critical issue - immediate correction needed.')}
-                className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200 transition-colors"
-                title="Critical issue"
-              >
-                ❌
-              </button>
-              <button
-                onClick={() => handleCommentChange(video.title, '🎯 Key learning moment.')}
-                className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 transition-colors"
-                title="Teaching moment"
-              >
-                📚
-              </button>
-            </div>
-
-            {/* Action Row */}
-            <div className="flex gap-2">
-              {labelMode === 'start_end' ? (
-                <>
-                  {/* Start Label Button - Always Available */}
-                  <button
-                    onClick={() => {
-                      const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                      const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                      
-                      if (hasIsbarEvaluation) {
-                        // Use ISBAR evaluation
-                        handleSubmitIsbarEvaluation(video.title);
-                      } else if (comment) {
-                        // Use regular comment
-                        handleStartLabel(video.title, comment, annotationCommentType);
-                      }
-                    }}
-                    disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
-                    className="flex-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    Start Label
-                  </button>
-                  
-                  {/* End Label Button - Available when there are active labels */}
-                  <button
-                    onClick={() => {
-                      const activeLabelsForVideo = getActiveLabelsForVideo(video.title);
-                      if (activeLabelsForVideo.length === 1) {
-                        // If only one active label, end it directly
-                        handleEndLabel(activeLabelsForVideo[0].id);
-                      } else if (activeLabelsForVideo.length > 1) {
-                        // If multiple active labels, end the most recent one
-                        const mostRecentLabel = activeLabelsForVideo[activeLabelsForVideo.length - 1];
-                        handleEndLabel(mostRecentLabel.id);
-                      }
-                    }}
-                    disabled={getActiveLabelsForVideo(video.title).length === 0}
-                    className="flex-1 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:bg-gray-400 transition-colors"
-                    title={getActiveLabelsForVideo(video.title).length > 1 ? `End most recent of ${getActiveLabelsForVideo(video.title).length} active labels` : getActiveLabelsForVideo(video.title).length === 1 ? "End active label" : "No active labels to end"}
-                  >
-                    End Label {getActiveLabelsForVideo(video.title).length > 0 && `(${getActiveLabelsForVideo(video.title).length})`}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => {
-                    const comment = videoPlayerStates.get(video.title)?.newComment.trim();
-                    const hasIsbarEvaluation = ['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue;
-                    
-                    if (hasIsbarEvaluation) {
-                      // Use ISBAR evaluation
-                      handleSubmitIsbarEvaluation(video.title);
-                    } else if (comment) {
-                      // Use regular comment
-                      const currentTime = videoPlayerStates.get(video.title)?.currentTime || 0;
-                      handleAddComment(video.title, currentTime, annotationDuration, annotationCommentType);
-                    }
-                  }}
-                  disabled={!videoPlayerStates.get(video.title)?.newComment.trim() && !((['identification', 'situation', 'background', 'assessment', 'recommendation'].includes(annotationCommentType) && isbarValue))}
-                  className="flex-1 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-                >
-                  Add Comment
-                </button>
-              )}
-              
-              <button
-                onClick={() => {
-                  handleCommentChange(video.title, '');
-                  setIsbarValue(''); // Also clear ISBAR value
-                }}
-                className="px-3 py-1 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300 transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Comments List - Scrollable with max height */}
-          <div className="grid-comments-list flex-1 overflow-y-auto min-h-0 p-3">
-            {videoComments.length === 0 ? (
-              <div className="text-center py-6">
-                <MessageSquare size={24} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-500 text-xs">No comments yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {videoComments.map((comment, commentIndex) => {
-                  const commentType = getCommentType(comment);
-                  const badge = getCommentBadge(commentType);
-                  const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                  const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                  
-                  return (
-                    <div key={`grid-comment-${comment.name}-${commentIndex}`} className="comment-item bg-gray-50 border rounded p-2">
-                      <div className="flex items-start gap-2">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
-                          {initials}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1 mb-1">
-                            <span className="font-medium text-xs truncate">{doctorName}</span>
-                            <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
-                            <span className={`px-1 py-0.5 text-xs rounded ${badge.classes}`}>
-                              {badge.label}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-700 line-clamp-2">
-                            {comment.comment_text}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-      </article>
-    );
-  };
-
-  // Render a video player only (no comments) for viewer videos
-  const renderVideoPlayerOnly = (video: Video) => {
-    if (!video) return null;
-
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    
-    const videoSrc = video.video_file && video.video_file.trim() 
-      ? video.video_file
-      : '/files/placeholder.mp4';
-    
-    return (
-      <CustomVideoPlayer
-        src={videoSrc}
-        title={video.title}
-        comments={videoComments.map(comment => ({
-          ...comment,
-          isEvaluation: isEvaluationComment(comment)
-        }))}
-        isPlaying={videoState.isPlaying}
-        currentTime={videoState.currentTime}
-        onTimeUpdate={(time) => handleProgress(video.title, { playedSeconds: time })}
-        onPlayPause={(playing) => handlePlayPause(video.title, playing)}
-        onSeek={(time) => handleSeek(video.title, time)}
-      />
-    );
-  };
-
-  // Render compact comment section for labeling video
-  const renderCompactCommentSection = (video: Video) => {
-    if (!video) return null;
-
-    const videoState = videoPlayerStates.get(video.title);
-    if (!videoState) return null;
-    
-    const videoComments = getVideoComments(video.title);
-    const currentTime = videoState.currentTime || 0;
-    
-    return (
-      <div className="space-y-3">
-        {/* Quick Comment Form */}
-        <div className="bg-gray-50 p-3 rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <label className="text-xs font-medium text-gray-700">Quick Comment:</label>
-            <span className="text-xs text-gray-500">@{formatTime(currentTime)}</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Add a comment..."
-              value={videoState.newComment || ''}
-              onChange={(e) => handleCommentChange(video.title, e.target.value)}
-              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && videoState.newComment?.trim()) {
-                  handleAddComment(video.title, currentTime, 60, 'general');
-                }
-              }}
-            />
-            <button
-              onClick={() => {
-                if (videoState.newComment?.trim()) {
-                  handleAddComment(video.title, currentTime, 60, 'general');
-                }
-              }}
-              disabled={!videoState.newComment?.trim()}
-              className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-            >
-              Add
-            </button>
-          </div>
-        </div>
-
-        {/* Comments List */}
-        <div className="max-h-64 overflow-y-auto">
-          {videoComments.length === 0 ? (
-            <div className="text-center py-4 text-gray-500">
-              <MessageSquare size={20} className="mx-auto mb-1 text-gray-400" />
-              <p className="text-xs">No comments yet</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {videoComments.map((comment, index) => {
-                const commentType = getCommentType(comment);
-                const badge = getCommentBadge(commentType);
-                const doctorName = comment.doctor_name || comment.doctor || 'Unknown';
-                const initials = doctorName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                
-                return (
-                  <div key={`compact-comment-${comment.name}-${index}`} className="bg-white border rounded-lg p-2">
-                    <div className="flex items-start gap-2">
-                      <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
-                        {initials}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1 mb-1">
-                          <span className="text-xs font-medium truncate">{doctorName}</span>
-                          <span className="text-xs text-gray-500">{formatTime(comment.timestamp)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 mb-1">
-                          <span className={`px-1 py-0.5 text-xs rounded ${badge.classes}`}>
-                            {badge.label}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-700 line-clamp-2">
-                          {comment.comment_text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // Render a single video with comments
   const renderVideoPlayer = (video: Video) => {
@@ -2254,7 +1782,7 @@ const SessionDetail = () => {
               <p className="text-gray-600 mt-1">{video.description}</p>
             </div>
             
-            {/* Sync Button - Only show in side-by-side mode */}
+            {/* Sync Button - Only show in multi-video modes */}
             {layout === 'side-by-side' && sessionData && sessionData.videos.length >= 2 && (
               <Button
                 onClick={() => syncVideosToReference(video)}
@@ -2389,9 +1917,9 @@ const SessionDetail = () => {
                   <Button
                     onClick={() => handleFloatingComment()}
                     size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 md:px-4 py-1 md:py-2 text-sm md:text-base rounded-lg shadow-sm hover:shadow-md transition-all duration-300 min-h-[36px] md:min-h-[44px]"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg shadow-sm hover:shadow-md transition-all duration-300"
                   >
-                    <MessageSquare size={14} className="mr-1 md:mr-2 md:w-4 md:h-4" />
+                    <MessageSquare size={14} className="mr-1" />
                     Comment
                   </Button>
                 </div>
@@ -2481,8 +2009,8 @@ const SessionDetail = () => {
                   </span>
                 </h3>
                 <div className="flex items-center gap-2">
-                  <div className="bg-white px-3 md:px-4 py-1 md:py-2 rounded-full border border-gray-200">
-                    <span className="text-sm md:text-base font-mono text-gray-700">
+                  <div className="bg-white px-3 py-1 rounded-full border border-gray-200">
+                    <span className="text-sm font-mono text-gray-700">
                       {formatTime(videoState.currentTime)}
                     </span>
                   </div>
@@ -2818,7 +2346,7 @@ const SessionDetail = () => {
 
             {/* Comments List - Flexible Height with Scrolling */}
             <div 
-              className="comments-list-section comment-list-container flex-1 overflow-y-auto custom-scrollbar relative"
+              className="comments-list-section comment-list-container flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative"
               role="region"
               aria-label="Video Comments"
               aria-live="polite"
@@ -2863,7 +2391,7 @@ const SessionDetail = () => {
                   return (
                     <article 
                       key={`comment-${comment.name}-${index}`}
-                      className="group bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 flex-shrink-0"
+                      className="group bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 flex-shrink-0 min-w-0 w-full"
                       role="article"
                       aria-labelledby={`comment-${comment.name}-header`}
                     >
@@ -2877,8 +2405,8 @@ const SessionDetail = () => {
                         {/* Content Column */}
                         <div className="flex-1 min-w-0">
                           {/* Top Row: Name, Badge, Actions */}
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 mb-1 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
                               <span 
                                 id={`comment-${comment.name}-header`}
                                 className="text-sm font-medium text-gray-900 truncate"
@@ -2887,30 +2415,30 @@ const SessionDetail = () => {
                                 {doctorName}
                               </span>
                               {/* Status Badge */}
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badge.classes}`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${badge.classes}`}>
                                 <span className={`w-1.5 h-1.5 ${badge.dotClasses} rounded-full mr-1`}></span>
                                 {badge.label}
                               </span>
                             </div>
                             
-                            {/* Action Icons (Hidden until hover) */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {/* Action Icons (Hidden until hover) - Fixed width to prevent overflow */}
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-auto">
                               {canEditComment(comment) && (
                                 <button 
                                   onClick={() => handleEditComment(comment)}
-                                  className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 rounded" 
+                                  className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 rounded transition-colors" 
                                   aria-label={`Edit comment by ${doctorName}`}
                                 >
-                                  <Edit3 size={16} aria-hidden="true" />
+                                  <Edit3 size={14} aria-hidden="true" />
                                 </button>
                               )}
                               {canDeleteComment(comment) && (
                                 <button 
                                   onClick={() => setCommentToDelete({ name: comment.name, text: comment.comment_text })}
-                                  className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 rounded" 
+                                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 rounded transition-colors" 
                                   aria-label={`Delete comment by ${doctorName}`}
                                 >
-                                  <Trash2 size={16} aria-hidden="true" />
+                                  <Trash2 size={14} aria-hidden="true" />
                                 </button>
                               )}
                             </div>
@@ -2991,20 +2519,20 @@ const SessionDetail = () => {
                       </div>
                       
                       {/* Comment Text with Expandable Content */}
-                      <div className="ml-13"> {/* Offset to align with content above */}
+                      <div className="ml-13 min-w-0"> {/* Offset to align with content above */}
                           {editingComment?.name === comment.name ? (
-                            <div className="space-y-2">
+                            <div className="space-y-2 min-w-0">
                               <textarea
                                 value={editCommentText}
                                 onChange={(e) => setEditCommentText(e.target.value)}
-                                className="w-full p-2 border border-gray-200 rounded-md text-sm resize-none"
+                                className="w-full p-2 border border-gray-200 rounded-md text-sm resize-none min-w-0"
                                 rows={3}
                               />
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   onClick={handleSaveComment}
                                   size="sm"
-                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 text-xs"
+                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 text-xs flex-shrink-0"
                                 >
                                   <Save size={12} className="mr-1" />
                                   Save
@@ -3013,7 +2541,7 @@ const SessionDetail = () => {
                                   onClick={handleCancelEdit}
                                   variant="outline"
                                   size="sm"
-                                  className="px-3 py-1 text-xs"
+                                  className="px-3 py-1 text-xs flex-shrink-0"
                                 >
                                   <X size={12} className="mr-1" />
                                   Cancel
@@ -3021,11 +2549,11 @@ const SessionDetail = () => {
                               </div>
                             </div>
                           ) : (
-                          <div className="text-sm text-gray-700 leading-relaxed">
+                          <div className="text-sm text-gray-700 leading-relaxed min-w-0 break-words">
                             {/* Truncated or Full Text */}
                             <div 
                               id={`comment-${comment.name}-text`}
-                              className={shouldShowExpander && !isExpanded ? "line-clamp-3" : ""}
+                              className={`${shouldShowExpander && !isExpanded ? "line-clamp-3" : ""} break-words word-wrap-break-word`}
                             >
                               {commentText}
                             </div>
@@ -3064,8 +2592,8 @@ const SessionDetail = () => {
         </div>
       </div>
     );
-  
-  // Main SessionDetail component return
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="py-8 px-4 sm:px-6 lg:px-8">
@@ -3075,7 +2603,7 @@ const SessionDetail = () => {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-3">
                 <div className="h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg">
-                  <Video size={24} className="text-white" />
+                  <VideoIcon size={24} className="text-white" />
                 </div>
                 <div className="flex-1">
                   <h1 className="text-3xl font-bold text-gray-900">
@@ -3187,7 +2715,7 @@ const SessionDetail = () => {
               <Eye size={24} className="text-blue-500" />
               Video Viewer
             </h2>
-            <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm p-1.5 rounded-xl border border-gray-200 shadow-lg">
+            <div className="flex items-center gap-3 bg-white/50 backdrop-blur-sm p-2 rounded-2xl border border-gray-200 shadow-lg">
               <Button
                 variant={layout === 'single' ? 'default' : 'ghost'}
                 size="sm"
@@ -3227,149 +2755,621 @@ const SessionDetail = () => {
             </div>
           </div>
         )}
-        
-        {layout === 'side-by-side' && sessionData && (
-          <div className="w-full max-w-full mx-auto space-y-6">
-            {/* Video Selection and Sync Controls */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/50 backdrop-blur-sm p-4 rounded-xl border border-gray-200 shadow-lg">
-              {/* Labeling Video Selection */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Video for Labeling:</label>
-                <select
-                  value={labelingVideo?.title || ''}
-                  onChange={(e) => {
-                    const selectedVideo = sessionData.videos.find(v => v.title === e.target.value);
-                    setLabelingVideo(selectedVideo || null);
-                  }}
-                  className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select video for labeling</option>
-                  {sessionData.videos.map((video) => (
-                    <option key={video.title} value={video.title}>
-                      {video.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
-              {/* Sync Control */}
-              {(viewerVideos.length > 0 || labelingVideo) && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (labelingVideo) {
-                        syncVideosToReference(labelingVideo);
-                      }
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-                  >
-                    <Zap size={16} />
-                    Sync All Videos
-                  </button>
+        {layout === 'side-by-side' && (
+          <div className="w-full">
+            {/* Side-by-Side Video Grid */}
+            <div className="space-y-6">
+
+              {/* Video Synchronization Controls */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw size={18} className="text-green-500" />
+                    <h3 className="text-lg font-semibold text-gray-900">Video Synchronization</h3>
+                  </div>
+                  {masterVideo && (
+                    <div className="text-sm text-gray-600">
+                      Master: <span className="font-medium text-green-600">{masterVideo.title}</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-
-            {/* Multi-Video Layout */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              {/* Left Side - Video Viewers */}
-              <div className="xl:col-span-2 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold text-gray-900">Video Viewers</h3>
-                  <div className="flex gap-2">
-                    <select
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          const selectedVideo = sessionData.videos.find(v => v.title === e.target.value);
-                          if (selectedVideo && !viewerVideos.find(v => v.title === selectedVideo.title)) {
-                            setViewerVideos([...viewerVideos, selectedVideo]);
-                          }
-                        }
-                        e.target.value = '';
-                      }}
-                      className="px-3 py-1 bg-white border border-gray-300 rounded text-sm"
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Play/Pause Sync Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Play size={16} className="text-blue-500" />
+                      <span className="text-sm font-medium text-gray-700">Play/Pause Sync</span>
+                    </div>
+                    <button
+                      onClick={() => setIsPlayPauseSync(!isPlayPauseSync)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        isPlayPauseSync ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
                     >
-                      <option value="">+ Add Video</option>
-                      {sessionData.videos
-                        .filter(v => !viewerVideos.find(vv => vv.title === v.title) && v.title !== labelingVideo?.title)
-                        .map((video) => (
-                          <option key={video.title} value={video.title}>
-                            {video.title}
-                          </option>
-                        ))}
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isPlayPauseSync ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Seek Sync Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <SkipForward size={16} className="text-orange-500" />
+                      <span className="text-sm font-medium text-gray-700">Seek Sync</span>
+                    </div>
+                    <button
+                      onClick={() => setIsSeekSync(!isSeekSync)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        isSeekSync ? 'bg-orange-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isSeekSync ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Master Video Selector */}
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Crown size={16} className="text-yellow-500" />
+                      <span className="text-sm font-medium text-gray-700">Master Video</span>
+                    </div>
+                    <select
+                      value={masterVideo?.title || (activeVideos.length > 0 ? activeVideos[0].title : '')}
+                      onChange={(e) => {
+                        const selected = activeVideos.find(v => v.title === e.target.value);
+                        setMasterVideo(selected || null);
+                      }}
+                      className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {activeVideos.map((video) => (
+                        <option key={video.title} value={video.title}>
+                          {video.title}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
-                
-                {viewerVideos.length === 0 ? (
-                  <div className="h-64 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
-                    <div className="text-center text-gray-500">
-                      <Video size={48} className="mx-auto mb-2 text-gray-400" />
-                      <p>Add videos to watch alongside the labeling video</p>
-                      <p className="text-sm">Use the dropdown above to add videos</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {viewerVideos.map((video, index) => (
-                      <div key={video.title} className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden">
-                        <div className="p-3 border-b border-gray-200 flex justify-between items-center">
-                          <h4 className="font-medium text-gray-900">{video.title}</h4>
-                          <button
-                            onClick={() => {
-                              setViewerVideos(viewerVideos.filter(v => v.title !== video.title));
-                            }}
-                            className="p-1 text-gray-400 hover:text-red-500 rounded"
-                          >
-                            <X size={16} />
-                          </button>
+              </div>
+
+              {/* Master Left, Sub-Videos Right Layout */}
+              <div className="space-y-4">
+                {/* Video Layout Container */}
+                <div className="flex gap-4 h-auto">
+                  {/* Master Video - Left Side (2/3 width) */}
+                  {masterVideo && (
+                    <div className="flex-1 w-2/3">
+                      <div className="bg-white border-2 border-yellow-400 rounded-lg overflow-hidden shadow-lg">
+                        {/* Master Video Header */}
+                        <div className="px-4 py-3 border-b-2 border-yellow-300 bg-yellow-50">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Crown size={20} className="text-yellow-600" />
+                              <div>
+                                <h3 className="text-lg font-bold text-gray-900">{masterVideo.title}</h3>
+                                <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-semibold">
+                                  Master Video
+                                </span>
+                              </div>
+                            </div>
+                            <Button
+                              onClick={() => syncVideosToReference(masterVideo)}
+                              variant="outline"
+                              size="sm"
+                              className="text-orange-600 border-orange-300 hover:bg-orange-50 font-medium"
+                            >
+                              <Zap size={16} className="mr-2" />
+                              Sync All Videos
+                            </Button>
+                          </div>
                         </div>
-                        <div className="p-3">
-                          <div className="aspect-video">
-                            {renderVideoPlayerOnly(video)}
+                        
+                        {/* Master Video Player */}
+                        <div className="p-4" ref={masterVideoRef}>
+                          {(() => {
+                            const videoState = videoPlayerStates.get(masterVideo.title);
+                            if (!videoState) return null;
+                            
+                            const videoSrc = masterVideo.video_file;
+                            const videoComments = getVideoComments(masterVideo.title);
+                            
+                            return (
+                              <CustomVideoPlayer
+                                key={`master-${masterVideo.title}`}
+                                src={videoSrc}
+                                title={masterVideo.title}
+                                comments={videoComments.map(comment => ({
+                                  ...comment,
+                                  isEvaluation: isEvaluationComment(comment)
+                                }))}
+                                isPlaying={videoState.isPlaying}
+                                currentTime={videoState.currentTime}
+                                onTimeUpdate={(time) => handleProgress(masterVideo.title, { playedSeconds: time })}
+                                onPlayPause={(playing) => handlePlayPause(masterVideo.title, playing)}
+                                onSeek={(time) => handleSeek(masterVideo.title, time)}
+                              />
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-Videos - Right Side Column (1/3 width) */}
+                  <div className="w-1/3">
+                    <div className="space-y-3">
+                      {/* Sub-Videos Header */}
+                      <div className="bg-gray-100 border border-gray-300 rounded-lg px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Maximize2 size={16} className="text-gray-600" />
+                            <h4 className="text-sm font-bold text-gray-800">Additional Views</h4>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="bg-gray-200 text-gray-600 px-2 py-1 rounded text-xs font-medium">
+                              {activeVideos.filter(video => video.title !== masterVideo?.title).length} videos
+                            </span>
+                            <Button
+                              onClick={() => setShowVideoSelection(true)}
+                              variant="outline"
+                              size="sm"
+                              className="text-blue-600 border-blue-300 hover:bg-blue-50 font-medium px-2 py-1 text-xs"
+                            >
+                              <VideoIcon size={12} className="mr-1" />
+                              Add
+                            </Button>
                           </div>
                         </div>
                       </div>
-                    ))}
+
+                      {/* Sub-Videos Stack */}
+                      {activeVideos.filter(video => video.title !== masterVideo?.title).length > 0 ? (
+                        <div 
+                          className="space-y-3" 
+                          style={{
+                            maxHeight: masterVideoHeight > 0 ? `${masterVideoHeight - 50}px` : 'auto',
+                            overflowY: 'auto'
+                          }}
+                        >
+                          {activeVideos.filter(video => video.title !== masterVideo?.title).map((video) => {
+                            const videoState = videoPlayerStates.get(video.title);
+                            if (!videoState) return null;
+                            
+                            const additionalVideosCount = activeVideos.filter(v => v.title !== masterVideo?.title).length;
+                            const maxVideoHeight = masterVideoHeight > 0 
+                              ? Math.min(
+                                  (masterVideoHeight - 100) / additionalVideosCount - 12, // 12px for spacing
+                                  250 // Max height per video
+                                )
+                              : 200; // Fallback height
+                            
+                            return (
+                              <div key={video.title} className="bg-gray-900 border border-gray-400 rounded-lg overflow-hidden shadow-md">
+                                {/* Sub-Video Header */}
+                                <div className="px-3 py-2 bg-gray-200 border-b border-gray-400">
+                                  <div className="flex items-center justify-between">
+                                    <h5 className="text-sm font-bold text-gray-800">{video.title}</h5>
+                                    <span className="bg-gray-300 text-gray-700 px-2 py-1 rounded text-xs font-medium">
+                                      View Only
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                {/* Sub-Video Player - Minimal */}
+                                <div 
+                                  className="bg-black relative"
+                                  style={{
+                                    height: `${maxVideoHeight}px`,
+                                    minHeight: '120px'
+                                  }}
+                                >
+                                  <video
+                                    key={`sub-${video.title}`}
+                                    className="w-full h-full object-cover"
+                                    src={video.video_file}
+                                    muted
+                                    playsInline
+                                    ref={(videoEl) => {
+                                      if (videoEl) {
+                                        // Sync play/pause state
+                                        if (videoState.isPlaying && videoEl.paused) {
+                                          videoEl.play().catch(() => {});
+                                        } else if (!videoState.isPlaying && !videoEl.paused) {
+                                          videoEl.pause();
+                                        }
+                                        
+                                        // Sync time (with small tolerance to avoid constant updates)
+                                        if (Math.abs(videoEl.currentTime - videoState.currentTime) > 1) {
+                                          videoEl.currentTime = videoState.currentTime;
+                                        }
+                                      }
+                                    }}
+                                    onTimeUpdate={(e) => {
+                                      const time = (e.target as HTMLVideoElement).currentTime;
+                                      handleProgress(video.title, { playedSeconds: time });
+                                    }}
+                                  />
+                                  
+                                  {/* Simple Play/Pause Control Overlay */}
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black bg-opacity-30">
+                                    <button
+                                      onClick={() => handlePlayPause(video.title, !videoState.isPlaying, true)}
+                                      className="bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full p-3 transition-all"
+                                    >
+                                      {videoState.isPlaying ? (
+                                        <Square size={24} className="text-gray-800" />
+                                      ) : (
+                                        <Play size={24} className="text-gray-800" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                
+                                {/* Sub-Video Simple Timeline */}
+                                <div className="px-3 py-2 bg-gray-100">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-mono text-gray-600 min-w-0">
+                                      {Math.floor(videoState.currentTime / 60)}:{String(Math.floor(videoState.currentTime % 60)).padStart(2, '0')}
+                                    </span>
+                                    <div 
+                                      className="flex-1 h-2 bg-gray-300 rounded-full overflow-hidden cursor-pointer"
+                                      onClick={(e) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const percent = (e.clientX - rect.left) / rect.width;
+                                        const videoEl = document.querySelector(`video[src="${video.video_file}"]`) as HTMLVideoElement;
+                                        if (videoEl && videoEl.duration) {
+                                          const newTime = percent * videoEl.duration;
+                                          handleSeek(video.title, newTime);
+                                        }
+                                      }}
+                                    >
+                                      <div 
+                                        className="h-full bg-blue-500 transition-all duration-200"
+                                        style={{ 
+                                          width: `${(() => {
+                                            const videoEl = document.querySelector(`video[src="${video.video_file}"]`) as HTMLVideoElement;
+                                            const duration = videoEl?.duration || 300; // Fallback to 5 minutes
+                                            return Math.min(((videoState.currentTime || 0) / duration) * 100, 100);
+                                          })()}%` 
+                                        }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-mono text-gray-600 min-w-0">
+                                      {(() => {
+                                        const videoEl = document.querySelector(`video[src="${video.video_file}"]`) as HTMLVideoElement;
+                                        const duration = videoEl?.duration || 0;
+                                        if (duration > 0) {
+                                          const minutes = Math.floor(duration / 60);
+                                          const seconds = Math.floor(duration % 60);
+                                          return `${minutes}:${String(seconds).padStart(2, '0')}`;
+                                        }
+                                        return '--:--';
+                                      })()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <VideoIcon size={24} className="mx-auto mb-2 text-gray-400" />
+                          <p className="text-sm">No additional videos selected</p>
+                          <p className="text-xs text-gray-400">Click "Add" to select videos</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Master Video Labeling Interface */}
+                {masterVideo && (
+                  <div className="bg-white border-2 border-yellow-300 rounded-lg p-4 shadow-md">
+                    <div className="space-y-4">
+                      {/* Labeling Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Target size={20} className="text-yellow-600" />
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900">Add Labels & Comments</h3>
+                            <p className="text-sm text-gray-600">Master Video: {masterVideo.title}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-sm font-mono text-gray-700">
+                            {(() => {
+                              const masterState = videoPlayerStates.get(masterVideo.title);
+                              const currentTime = masterState?.currentTime || 0;
+                              const minutes = Math.floor(currentTime / 60);
+                              const seconds = Math.floor(currentTime % 60);
+                              return `${minutes}:${String(seconds).padStart(2, '0')}`;
+                            })()}
+                          </div>
+                          <Button
+                            onClick={() => {
+                              const masterState = videoPlayerStates.get(masterVideo.title);
+                              if (masterState) {
+                                handlePlayPause(masterVideo.title, !masterState.isPlaying);
+                              }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="text-blue-600 border-blue-300 hover:bg-blue-50 font-medium"
+                          >
+                            {(() => {
+                              const masterState = videoPlayerStates.get(masterVideo.title);
+                              return masterState?.isPlaying ? (
+                                <>
+                                  <Square size={16} className="mr-2" />
+                                  Pause All
+                                </>
+                              ) : (
+                                <>
+                                  <Play size={16} className="mr-2" />
+                                  Play All
+                                </>
+                              );
+                            })()}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Quick Label Actions */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {/* Positive Label */}
+                        <Button
+                          onClick={() => {
+                            const masterState = videoPlayerStates.get(masterVideo.title);
+                            if (masterState && masterVideo) {
+                              handleStartLabel(masterVideo.title, '👍 Good technique', 'positive');
+                            }
+                          }}
+                          className="bg-green-600 hover:bg-green-700 text-white font-medium h-12"
+                        >
+                          <CheckCircle size={18} className="mr-2" />
+                          Add Positive Label
+                        </Button>
+
+                        {/* Attention Label */}
+                        <Button
+                          onClick={() => {
+                            const masterState = videoPlayerStates.get(masterVideo.title);
+                            if (masterState && masterVideo) {
+                              handleStartLabel(masterVideo.title, '⚠️ Needs attention', 'attention');
+                            }
+                          }}
+                          className="bg-yellow-600 hover:bg-yellow-700 text-white font-medium h-12"
+                        >
+                          <AlertTriangle size={18} className="mr-2" />
+                          Add Attention Label
+                        </Button>
+
+                        {/* Critical Label */}
+                        <Button
+                          onClick={() => {
+                            const masterState = videoPlayerStates.get(masterVideo.title);
+                            if (masterState && masterVideo) {
+                              handleStartLabel(masterVideo.title, '❌ Critical issue: This approach poses safety risks and should be corrected immediately.', 'critical');
+                            }
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white font-medium h-12"
+                        >
+                          <AlertCircle size={18} className="mr-2" />
+                          Add Critical Label
+                        </Button>
+                      </div>
+
+                      {/* Comment Input */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare size={16} className="text-blue-600" />
+                          <label className="text-sm font-medium text-gray-700">
+                            Add Custom Comment
+                          </label>
+                        </div>
+                        <div className="flex gap-2">
+                          <textarea
+                            value={masterVideo ? videoPlayerStates.get(masterVideo.title)?.newComment || '' : ''}
+                            onChange={(e) => {
+                              if (masterVideo) {
+                                handleCommentChange(masterVideo.title, e.target.value);
+                              }
+                            }}
+                            placeholder="Describe what you observe at this moment..."
+                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            rows={2}
+                          />
+                          <Button
+                            onClick={() => {
+                              if (masterVideo) {
+                                const comment = videoPlayerStates.get(masterVideo.title)?.newComment.trim();
+                                if (comment) {
+                                  if (labelMode === 'start_end') {
+                                    handleStartLabel(masterVideo.title, comment, annotationCommentType);
+                                  } else {
+                                    const currentTime = videoPlayerStates.get(masterVideo.title)?.currentTime || 0;
+                                    handleAddComment(masterVideo.title, currentTime, annotationDuration, annotationCommentType);
+                                  }
+                                }
+                              }
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6"
+                            disabled={!masterVideo || !videoPlayerStates.get(masterVideo.title)?.newComment?.trim()}
+                          >
+                            <Send size={16} className="mr-2" />
+                            Add Comment
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Active Labels Display */}
+                      {masterVideo && getActiveLabelsForVideo(masterVideo.title).length > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="h-6 w-6 rounded-full bg-yellow-500 flex items-center justify-center">
+                                <Target size={12} className="text-white" />
+                              </div>
+                              <span className="text-sm font-bold text-gray-900">Active Labels</span>
+                            </div>
+                            <span className="text-xs font-medium text-gray-700">
+                              {getActiveLabelsForVideo(masterVideo.title).length} recording
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {getActiveLabelsForVideo(masterVideo.title).map((label) => (
+                              <div key={label.id} className="flex items-center justify-between bg-white p-2 rounded border border-yellow-200">
+                                <div className="flex-1">
+                                  <div className="text-xs font-medium text-gray-900 truncate">{label.comment}</div>
+                                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock size={10} />
+                                    Started at {formatTime(label.startTime)}
+                                  </div>
+                                </div>
+                                <Button
+                                  onClick={() => handleEndLabel(label.id)}
+                                  size="sm"
+                                  className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs px-2 py-1 h-6"
+                                >
+                                  End Label
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Right Side - Labeling Video with Comments */}
-              <div className="xl:col-span-1">
-                <div className="bg-white border border-gray-200 shadow-lg rounded-lg overflow-hidden sticky top-4">
-                  <div className="p-3 bg-blue-50 border-b border-blue-200">
-                    <h4 className="font-medium text-blue-900 flex items-center gap-2">
-                      <Edit3 size={16} />
-                      Labeling Video
-                    </h4>
-                    {labelingVideo && (
-                      <p className="text-sm text-blue-700 mt-1">{labelingVideo.title}</p>
-                    )}
+
+              {/* Comment History Section - Moved Below for Space Optimization */}
+              {masterVideo && (
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare size={18} className="text-blue-500" />
+                        <h3 className="text-lg font-bold text-gray-900">Comment History</h3>
+                        <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full text-xs font-medium">
+                          {masterVideo.title}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {getVideoComments(masterVideo.title).length} comments
+                      </div>
+                    </div>
                   </div>
                   
-                  {labelingVideo ? (
-                    <div className="p-3">
-                      {/* Video Player */}
-                      <div className="aspect-video mb-4">
-                        {renderVideoPlayerOnly(labelingVideo)}
+                  <div className="max-h-96 overflow-y-auto">
+                    {getVideoComments(masterVideo.title).length > 0 ? (
+                      <div className="divide-y divide-gray-100">
+                        {getVideoComments(masterVideo.title).map((comment) => {
+                          const commentType = getCommentType(comment);
+                          const badge = getCommentBadge(commentType);
+                          const isExpanded = expandedComments.has(comment.name);
+                          const isLongComment = comment.comment_text.length > 150;
+                          
+                          return (
+                            <div key={comment.name} className="p-4 hover:bg-gray-50 transition-colors">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  {/* Comment Header */}
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${badge.classes}`}>
+                                      <span className={`w-2 h-2 rounded-full mr-1 ${badge.dotClasses}`}></span>
+                                      {badge.label}
+                                    </span>
+                                    <span className="text-sm text-gray-500 font-mono">
+                                      {formatTime(comment.timestamp)}
+                                    </span>
+                                    {comment.duration && (
+                                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                        {formatTime(comment.duration)} duration
+                                      </span>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Comment Text */}
+                                  <div className="text-sm text-gray-800 leading-relaxed">
+                                    {isLongComment && !isExpanded ? (
+                                      <>
+                                        {comment.comment_text.substring(0, 150)}...
+                                        <button
+                                          onClick={() => toggleCommentExpansion(comment.name)}
+                                          className="ml-2 text-blue-600 hover:text-blue-800 font-medium text-xs"
+                                        >
+                                          Show more
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        {comment.comment_text}
+                                        {isLongComment && (
+                                          <button
+                                            onClick={() => toggleCommentExpansion(comment.name)}
+                                            className="ml-2 text-blue-600 hover:text-blue-800 font-medium text-xs"
+                                          >
+                                            Show less
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Comment Meta */}
+                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                                    <span>By: {comment.doctor_name || comment.doctor}</span>
+                                    <span>•</span>
+                                    <span>{new Date(comment.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                                
+                                {/* Comment Actions */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    onClick={() => handleEditComment(comment)}
+                                    className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                                    title="Edit comment"
+                                  >
+                                    <Edit3 size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteComment(comment.name, comment.comment_text)}
+                                    className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                                    title="Delete comment"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      
-                      {/* Comments Section - Compact */}
-                      {renderCompactCommentSection(labelingVideo)}
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      <Edit3 size={32} className="mx-auto mb-2 text-gray-400" />
-                      <p>Select a video for labeling</p>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="p-8 text-center text-gray-500">
+                        <MessageSquare size={48} className="mx-auto mb-3 text-gray-300" />
+                        <p className="text-sm">No comments yet for {masterVideo.title}</p>
+                        <p className="text-xs mt-1">Comments and labels will appear here</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
+        
         
 
         {/* Global Floating Video List Sidebar */}
@@ -4371,8 +4371,138 @@ const SessionDetail = () => {
           </div>
         </div>
       )}
+
+      {/* Video Selection Modal */}
+      {showVideoSelection && sessionData && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] border border-gray-200 animate-fade-in-up overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Select Additional Videos</h3>
+                  <p className="text-sm text-gray-600 mt-1">Choose videos to display alongside the master video</p>
+                </div>
+                <Button
+                  onClick={() => setShowVideoSelection(false)}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </Button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 p-6 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sessionData.videos?.map((video) => {
+                  const isSelected = activeVideos.find(v => v.title === video.title);
+                  const isMaster = masterVideo?.title === video.title;
+                  
+                  return (
+                    <div 
+                      key={video.title}
+                      className={`border rounded-lg overflow-hidden transition-all duration-200 ${
+                        isMaster 
+                          ? 'border-blue-500 bg-blue-50' 
+                          : isSelected 
+                            ? 'border-green-500 bg-green-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {/* Video Thumbnail/Placeholder */}
+                      <div className="aspect-video bg-gray-900 relative">
+                        <video
+                          src={video.video_file}
+                          className="w-full h-full object-cover"
+                          muted
+                          preload="metadata"
+                        />
+                        {isMaster && (
+                          <div className="absolute top-2 left-2">
+                            <span className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium">
+                              <Crown size={12} className="inline mr-1" />
+                              Master
+                            </span>
+                          </div>
+                        )}
+                        {isSelected && !isMaster && (
+                          <div className="absolute top-2 left-2">
+                            <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-medium">
+                              <CheckCircle size={12} className="inline mr-1" />
+                              Selected
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Video Info */}
+                      <div className="p-4">
+                        <h4 className="font-medium text-gray-900 mb-2 truncate">{video.title}</h4>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500">
+                            {video.duration ? `${Math.floor(video.duration / 60)}:${String(Math.floor(video.duration % 60)).padStart(2, '0')}` : 'Loading...'}
+                          </span>
+                          
+                          {isMaster ? (
+                            <span className="text-xs text-blue-600 font-medium">Master Video</span>
+                          ) : isSelected ? (
+                            <Button
+                              onClick={() => handleRemoveVideoFromAdditional(video)}
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 border-red-300 hover:bg-red-50 font-medium px-3 py-1 text-xs"
+                            >
+                              Remove
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => handleAddVideoToAdditional(video)}
+                              variant="outline"
+                              size="sm"
+                              className="text-green-600 border-green-300 hover:bg-green-50 font-medium px-3 py-1 text-xs"
+                            >
+                              Add
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Empty State */}
+              {(!sessionData.videos || sessionData.videos.length === 0) && (
+                <div className="text-center py-12">
+                  <VideoIcon size={48} className="mx-auto text-gray-300 mb-4" />
+                  <h4 className="text-lg font-medium text-gray-500 mb-2">No Videos Available</h4>
+                  <p className="text-gray-400">No videos found for this session.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  {activeVideos.filter(v => v.title !== masterVideo?.title).length} additional videos selected
+                </div>
+                <Button
+                  onClick={() => setShowVideoSelection(false)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default SessionDetail; 
+export default SessionDetailMain; 
