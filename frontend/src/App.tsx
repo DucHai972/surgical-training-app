@@ -25,7 +25,7 @@ function App() {
 		console.log('🔗 Router Debug Info:', {
 			pathname: window.location.pathname,
 			isDev: import.meta.env.DEV,
-			basename: import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/surgical_training",
+			basename: import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/isim",
 			fullUrl: window.location.href
 		});
 	}, []);
@@ -37,7 +37,7 @@ function App() {
 				enableSocket={false}
 		>
 			<Toaster position="top-right" />
-				<Router basename={import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/surgical_training"}>
+				<Router basename={import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/isim"}>
 				<Routes>
 					<Route path="/login" element={<Login />} />
 					<Route path="/dashboard" element={
@@ -74,11 +74,11 @@ function App() {
 								<h1 className="text-2xl font-bold text-gray-900 mb-4">Route Not Found</h1>
 								<p className="text-gray-600 mb-4">The requested route was not found.</p>
 								<p className="text-sm text-gray-500">Current location: {window.location.pathname}</p>
-								<p className="text-sm text-gray-500">Basename: {import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/surgical_training"}</p>
+								<p className="text-sm text-gray-500">Basename: {import.meta.env.DEV ? "/assets/surgical_training/frontend" : "/isim"}</p>
 								<div className="mt-4">
-									<a href="/surgical_training/login" className="text-blue-600 hover:text-blue-800">Go to Login</a>
+									<a href="/isim/login" className="text-blue-600 hover:text-blue-800">Go to Login</a>
 									{' | '}
-									<a href="/surgical_training/dashboard" className="text-blue-600 hover:text-blue-800">Go to Dashboard</a>
+									<a href="/isim/dashboard" className="text-blue-600 hover:text-blue-800">Go to Dashboard</a>
 								</div>
 							</div>
 						</div>

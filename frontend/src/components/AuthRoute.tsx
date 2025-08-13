@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 // Helper function to get the correct login URL based on environment
 const getLoginUrl = () => {
   const isDev = import.meta.env.DEV;
-  return isDev ? '/assets/surgical_training/frontend/login' : '/surgical_training/login';
+  return isDev ? '/assets/surgical_training/frontend/login' : '/isim/login';
 };
 
 interface AuthRouteProps {

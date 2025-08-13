@@ -47,15 +47,32 @@ const Dashboard = () => {
     }, 0);
   }, [activeTab]);
   const { currentUser: authUser } = useFrappeAuth();
-  const { hasDoctor } = useUserRoles();
+  const { hasDoctor, userRoles, rolesLoading, isReady } = useUserRoles();
   const isAdmin = isCurrentUserAdmin(authUser || undefined);
 
-  // Use different API based on user role
-  const { data, error, isValidating, mutate: refreshSessions } = useFrappeGetCall(
-    isAdmin 
-      ? 'surgical_training.api.session.get_sessions'
-      : 'surgical_training.api.session_assignment.get_user_assigned_sessions'
-  );
+  // Debug logging for troubleshooting
+  console.log('🔍 Dashboard Debug:', {
+    currentUser: authUser,
+    isAdmin,
+    hasDoctor,
+    userRoles,
+    rolesLoading,
+    isReady
+  });
+
+  // Use different API based on user role - allow Doctor role to see all sessions
+  const shouldShowAllSessions = isAdmin || hasDoctor;
+  const apiEndpoint = shouldShowAllSessions
+    ? 'surgical_training.api.session.get_sessions'
+    : 'surgical_training.api.session_assignment.get_user_assigned_sessions';
+  
+  console.log('🌐 Dashboard API:', {
+    shouldShowAllSessions,
+    apiEndpoint,
+    reasoning: shouldShowAllSessions ? 'Admin or Doctor role detected' : 'Regular user - showing assigned sessions only'
+  });
+
+  const { data, error, isValidating, mutate: refreshSessions } = useFrappeGetCall(apiEndpoint);
 
   useEffect(() => {
     // Check if data exists and has the expected format

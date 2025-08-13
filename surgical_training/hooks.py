@@ -253,8 +253,8 @@ patches = [
 
 
 website_route_rules = [
-    {'from_route': '/surgical_training/<path:app_path>', 'to_route': 'frontend'},
-    {'from_route': '/surgical_training', 'to_route': 'frontend'},
+    {'from_route': '/isim/<path:app_path>', 'to_route': 'frontend'},
+    {'from_route': '/isim', 'to_route': 'frontend'},
 ]
 
 # API Whitelisted Methods
@@ -296,7 +296,9 @@ whitelisted_methods = [
     "surgical_training.api.doctor_session.get_session_comments",
     "surgical_training.api.doctor_session.get_doctor_dashboard_stats",
     "surgical_training.api.user_activity.get_user_activity_history",
-    "surgical_training.api.user_activity.get_user_activity_stats"
+    "surgical_training.api.user_activity.get_user_activity_stats",
+    "surgical_training.api.user_admin.add_doctor_role_to_user",
+    "surgical_training.api.user_admin.get_user_roles"
 ]
 
 # Permission hooks for row-level security

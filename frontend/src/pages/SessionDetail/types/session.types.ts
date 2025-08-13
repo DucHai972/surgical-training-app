@@ -110,8 +110,10 @@ export interface EvaluationData {
 
 export type LayoutType = 'single' | 'side-by-side';
 
-export type CommentType = 'positive' | 'attention' | 'critical' | 'teaching' | 'general';
+export type CommentType = 'positive' | 'attention' | 'critical' | 'teaching' | 'general' | 'identification' | 'situation' | 'background' | 'assessment' | 'recommendation';
 
 export type LabelMode = 'start_end' | 'duration';
 
 export type AnnotationCommentType = 'identification' | 'situation' | 'background' | 'assessment' | 'recommendation' | 'general';
+
+export type ActiveTab = 'videos' | 'comments' | 'comment' | 'evaluation';

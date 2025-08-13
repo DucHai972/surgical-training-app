@@ -461,7 +461,7 @@ const DoctorSessions = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.location.href = `/surgical_training/session/${session.session}`}
+                        onClick={() => window.location.href = `/isim/session/${session.session}`}
                       >
                         View Session
                       </Button>

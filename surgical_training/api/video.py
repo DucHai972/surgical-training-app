@@ -11,39 +11,60 @@ def _serve_video_file(file_path):
     print(f"🗂️ _SERVE_VIDEO_FILE:")
     print(f"   Input file_path: '{file_path}'")
     
-    # Build the full file path - serve from public directory for better range request support
+    # Build the full file path - check both public and private directories
     site_path = frappe.utils.get_site_path()
     print(f"   Site path: '{site_path}'")
     
+    # Try multiple possible paths for the file
+    possible_paths = []
+    
     if file_path.startswith('public/'):
-        full_path = os.path.join(site_path, file_path)
-        print(f"   Path type: public/ prefix -> '{full_path}'")
+        possible_paths.append(os.path.join(site_path, file_path))
+    elif file_path.startswith('private/'):
+        possible_paths.append(os.path.join(site_path, file_path))
     elif file_path.startswith('files/'):
-        full_path = os.path.join(site_path, 'public', file_path)
-        print(f"   Path type: files/ prefix -> '{full_path}'")
+        possible_paths.append(os.path.join(site_path, 'public', file_path))
+        possible_paths.append(os.path.join(site_path, 'private', file_path))
     else:
-        full_path = os.path.join(site_path, 'public', 'files', file_path)
-        print(f"   Path type: filename only -> '{full_path}'")
+        # Try both public and private directories for the filename
+        possible_paths.append(os.path.join(site_path, 'public', 'files', file_path))
+        possible_paths.append(os.path.join(site_path, 'private', 'files', file_path))
     
-    print(f"   🎯 Final full_path: '{full_path}'")
+    # Find the first existing file
+    full_path = None
+    for path in possible_paths:
+        print(f"   Checking path: '{path}'")
+        if os.path.exists(path):
+            full_path = path
+            print(f"   ✅ Found file at: '{full_path}'")
+            break
     
-    # Check if file exists
-    if not os.path.exists(full_path):
-        print(f"   ❌ FILE NOT FOUND: '{full_path}'")
-        print(f"   📁 Available files in directory:")
+    # If no file found in any location
+    if not full_path:
+        print(f"   ❌ FILE NOT FOUND in any of these locations:")
+        for path in possible_paths:
+            print(f"      - {path}")
         
         # List available video files for debugging
         try:
             import glob
-            video_files = glob.glob(os.path.join(os.path.dirname(full_path), "*.mp4"))
-            for f in video_files[:5]:  # Show first 5 files
+            print(f"   📁 Available video files in public/files:")
+            public_files = glob.glob(os.path.join(site_path, 'public', 'files', "*.mp4"))
+            for f in public_files[:5]:
                 print(f"      - {os.path.basename(f)}")
-            if len(video_files) > 5:
-                print(f"      ... and {len(video_files) - 5} more files")
+            if len(public_files) > 5:
+                print(f"      ... and {len(public_files) - 5} more files")
+                
+            print(f"   📁 Available video files in private/files:")
+            private_files = glob.glob(os.path.join(site_path, 'private', 'files', "*.mp4"))
+            for f in private_files[:5]:
+                print(f"      - {os.path.basename(f)}")
+            if len(private_files) > 5:
+                print(f"      ... and {len(private_files) - 5} more files")
         except Exception as e:
-            print(f"   ⚠️ Could not list directory: {e}")
+            print(f"   ⚠️ Could not list directories: {e}")
         
-        frappe.logger().error(f"File not found: {full_path}")
+        frappe.logger().error(f"File not found in any location: {possible_paths}")
         
         # Return proper 404 response instead of throwing exception
         frappe.local.response.http_status_code = 404
@@ -52,7 +73,7 @@ def _serve_video_file(file_path):
             "error": "Video file not found",
             "message": f"The requested video file '{file_path}' does not exist on the server.",
             "requested_file": file_path,
-            "full_path": full_path
+            "searched_paths": possible_paths
         }
     else:
         print(f"   ✅ File exists, size: {os.path.getsize(full_path)} bytes")
